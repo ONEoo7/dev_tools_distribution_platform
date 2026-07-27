@@ -1,0 +1,32 @@
+[package]
+name = "dist-core"
+description = "Shared TUF verifier for the update client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# rlib for the Rust binding, staticlib and cdylib for the C ABI that the
+# other four language bindings use (PLAN.md decision D2).
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[dependencies]
+chrono = { version = "0.4", default-features = false }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+# Exactly pinned, never a caret range: the crate is pre-1.0 and documents its
+# API as unstable, so upgrades are deliberate reviewed changes (PLAN.md D1).
+#
+# default-features = false drops `hyper`, which this crate enables by default
+# for fetching. We do our own fetching, and an HTTP stack inside the verifier
+# is supply-chain surface on the most security-critical component we ship.
+tuf = { version = "=0.3.0-beta9", default-features = false }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+serde_json = "1"

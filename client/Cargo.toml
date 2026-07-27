@@ -1,0 +1,31 @@
+[workspace]
+resolver = "3"
+members = ["dist-core-rs", "dist-core-ffi", "dist-conformance"]
+exclude = ["vendor/tuf"]
+
+# Vendored fork of the `tuf` crate (PLAN.md D1 and 5.5). Upstream 0.3.0-beta9
+# cannot parse metadata that python-tuf produces: it compares `spec_version` by
+# exact string, and it rejects `*` in delegation paths instead of implementing
+# the specification's glob matching. Every change we make is listed in
+# vendor/tuf/PATCHES.md so the delta stays reviewable and upstreamable.
+[patch.crates-io]
+tuf = { path = "vendor/tuf" }
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+# The verifier is the security boundary for every client. A panic in it is a
+# denial of service on the update path, and an unwrap is how panics get there.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+pedantic = { level = "warn", priority = -1 }

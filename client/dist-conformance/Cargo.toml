@@ -1,0 +1,20 @@
+[package]
+name = "dist-conformance"
+description = "Client-under-test CLI for the TUF conformance suite"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "dist-conformance"
+path = "src/main.rs"
+
+[dependencies]
+tuf = { version = "=0.3.0-beta9", default-features = false }
+futures-executor = "0.3"
+futures-util = "0.3"
+# TLS is off: the conformance harness serves plain HTTP on loopback, and this
+# binary is a test tool that is never shipped to users.
+ureq = { version = "2", default-features = false }

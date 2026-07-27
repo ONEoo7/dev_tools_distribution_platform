@@ -1,0 +1,44 @@
+{
+ "signatures": [
+  {
+   "keyid": "c360e5139c387d6671e5f6c2b390fe066fc7548407ebd688bc4205d4b9d48728",
+   "sig": "e3a7819fa25ffbd7774a614ca712c00980c078e5374e4bd0d10488774dd533d03f40d0ab59561897fc89b56387285dff6732234755abf737a33349f59e1f9703"
+  }
+ ],
+ "signed": {
+  "_type": "targets",
+  "expires": "2026-08-10T13:42:42Z",
+  "spec_version": "1.0.31",
+  "targets": {
+   "editor/stable/windows-amd64/1.4.2/Editor-1.4.2.zip": {
+    "custom": {
+     "mandatory": false,
+     "rollout_pct": 25,
+     "version": "1.4.2"
+    },
+    "hashes": {
+     "sha256": "1f5d7b629d5d53cdf9b9880cb30dab0097d9557f2ee4ed964beabd0840d0cbb7"
+    },
+    "length": 48
+   },
+   "editor/stable/windows-amd64/_current/release.json": {
+    "custom": {
+     "mandatory": false,
+     "rollout_pct": 100,
+     "version": "1.4.2"
+    },
+    "hashes": {
+     "sha256": "eb50066de508cc01fd52fc4651dc01acf157b43a66854722578d92c22f0a321e"
+    },
+    "length": 86
+   },
+   "viewer/stable/windows-amd64/9.9.9/Viewer-9.9.9.zip": {
+    "hashes": {
+     "sha256": "0b31a4dd68310bf3918055a9492f86c68c5fc955d1664c0fafbc36288b2d6497"
+    },
+    "length": 21
+   }
+  },
+  "version": 4
+ }
+}

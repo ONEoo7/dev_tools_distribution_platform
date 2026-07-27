@@ -1,0 +1,22 @@
+{
+ "signatures": [
+  {
+   "keyid": "94abb5fc58f064c1f529c246f3ec63663d0cf05bcb7ae1108aa53da3d362de6f",
+   "sig": "178eca51f97960564a97f68e634596a106261abafa119ba1797f699e41c0a4dc366636730e196464c894244aeb740fa15505f1b0062518fdf9a438678877ea02"
+  }
+ ],
+ "signed": {
+  "_type": "snapshot",
+  "expires": "2026-08-03T13:42:42Z",
+  "meta": {
+   "app-editor.json": {
+    "version": 4
+   },
+   "targets.json": {
+    "version": 2
+   }
+  },
+  "spec_version": "1.0.31",
+  "version": 5
+ }
+}

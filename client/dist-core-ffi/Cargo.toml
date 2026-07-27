@@ -1,0 +1,30 @@
+[package]
+name = "dist-core-ffi"
+description = "C ABI over the shared TUF verifier, for the language bindings"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "dist_core_ffi"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+dist-core = { path = "../dist-core-rs" }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+# Same panic-denying posture as the verifier. Here it is stricter than a
+# quality rule: unwinding across an FFI boundary is undefined behaviour.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+pedantic = { level = "warn", priority = -1 }
+
+[dev-dependencies]
+serde_json = "1"

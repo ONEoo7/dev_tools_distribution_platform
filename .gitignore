@@ -1,0 +1,124 @@
+# ---------------------------------------------------------------- key material
+#
+# Never commit. See docs/PLAN.md 3.3. The KeePass key file is the second half
+# of the composite master key, so it matters as much as the database itself.
+*.kdbx
+*.kdbx.lock
+*.keyx
+*.keyfile
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.der
+keys/
+secrets/
+*.unseal
+
+# The vendored fork ships its own test keys; upstream commits them on purpose
+# and its test suite does not run without them.
+!client/vendor/tuf/tests/**/*.der
+
+# ------------------------------------------------------------ mutable server state
+#
+# Anchored: these are the volume-backed directories at the repository root
+# (docs/PLAN.md 10.1). docker-compose.dev.yml bind-mounts ../../repo, which
+# resolves here.
+/repo/
+/quarantine/
+/telemetry/
+/crashdumps/
+/staging/
+
+# ---------------------------------------------------------------------- rust
+target/
+*.rs.bk
+*.profraw
+
+# -------------------------------------------------------------------- python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# ---------------------------------------------- node / typescript bindings (phase 6)
+node_modules/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# ------------------------------------------------------- c# bindings (phase 6)
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+*.suo
+
+# --------------------------------------------------- c / c++ bindings (phase 6)
+#
+# Build output of the C ABI (client/dist-core-ffi) and of any consumer built in
+# tree. Test fixtures are re-included below: publisher-pinning and payload
+# tests need real signed binaries checked in.
+*.o
+*.obj
+*.a
+*.lib
+*.exp
+*.ilk
+*.pdb
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+
+# Re-included by extension rather than by directory: a blanket `!tests/fixtures/**`
+# would sit after the key-material block and re-admit a stray .pem or .kdbx.
+!**/tests/fixtures/**/*.exe
+!**/tests/fixtures/**/*.dll
+!**/tests/fixtures/**/*.so
+!**/tests/fixtures/**/*.dylib
+
+# ------------------------------------------------------------- conformance suite
+#
+# tuf-conformance is cloned, not vendored (docs/PLAN.md 12, phase 2).
+/tuf-conformance/
+.tuf-conformance/
+
+# ----------------------------------------------------------------- local env
+.env
+.env.*
+!.env.example
+
+# --------------------------------------------------------- editors and os cruft
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ------------------------------------------------------------------- scratch
+*.log
+/scratch/
+/tmp/

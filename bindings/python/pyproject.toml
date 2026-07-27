@@ -1,0 +1,36 @@
+[project]
+name = "dist-client"
+version = "0.1.0"
+description = "Python binding for the dist-core TUF verifier"
+requires-python = ">=3.13"
+# No dependencies on purpose. This is embedded in other people's applications,
+# and every package added here is one their supply chain inherits. The verifier
+# itself is a shared library loaded with ctypes from the standard library.
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dist_client"]
+
+# The verifier ships inside the wheel, beside `_ffi.py`, which is the first
+# place `load_library` looks. That makes the wheel self-contained: an
+# application depends on `dist-client` and gets the verifier with it, rather
+# than having to locate and bundle a native library itself.
+#
+# `artifacts` is required because the repository's .gitignore excludes compiled
+# libraries — correctly, since they are build output. Without this line
+# hatchling honours that and silently ships a wheel with no verifier in it.
+artifacts = [
+    "src/dist_client/*.dll",
+    "src/dist_client/*.so",
+    "src/dist_client/*.dylib",
+]
+
+# Tags the wheel for the platform whose library it carries. See hatch_build.py:
+# a `py3-none-any` wheel containing a Windows DLL installs cheerfully on Linux
+# and fails at import.
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"

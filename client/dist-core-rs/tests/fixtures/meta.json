@@ -1,0 +1,15 @@
+{
+  "generated_at": 1785159762,
+  "delegated_role": "app-editor",
+  "target_path": "editor/stable/windows-amd64/1.4.2/Editor-1.4.2.zip",
+  "forged_target_path": "viewer/stable/windows-amd64/9.9.9/Viewer-9.9.9.zip",
+  "version": "1.4.2",
+  "rollout_pct": 25,
+  "payload_length": 48,
+  "pointer_path": "editor/stable/windows-amd64/_current/release.json",
+  "published_versions": {
+    "snapshot": 5,
+    "targets": 2,
+    "app-editor": 4
+  }
+}

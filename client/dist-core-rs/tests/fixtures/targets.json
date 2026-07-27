@@ -1,0 +1,43 @@
+{
+ "signatures": [
+  {
+   "keyid": "c799f407e4e92c93e671e73db04c021175a3fd520ffa5fd15ccc6e4a2859f18c",
+   "sig": "0b922de71018b9c70ee6ee1f595182d13219f9f6948da51fa1dddd519ef8b4b737a2e628565af0925dd940be4f7acd91591a14568eff58fa6ab2f5425c007f0b"
+  },
+  {
+   "keyid": "eedc844138683fe1f6adf4bdd782160217ecbaa41bc5b199760b1260ffcccc72",
+   "sig": "e4236712700ecb34637eb1ad39a18936284dc0b35f8815057b8b3a4dfe4f89c1cae5f8df90686440558668a28c8a730e8fa69abcb3ec15f3d21f12b7eaad810d"
+  }
+ ],
+ "signed": {
+  "_type": "targets",
+  "delegations": {
+   "keys": {
+    "c360e5139c387d6671e5f6c2b390fe066fc7548407ebd688bc4205d4b9d48728": {
+     "keytype": "ed25519",
+     "keyval": {
+      "public": "0353028a51f4922d40c6d742cfa77ffd373c556726265d69e72312e72ddff5b6"
+     },
+     "scheme": "ed25519"
+    }
+   },
+   "roles": [
+    {
+     "keyids": [
+      "c360e5139c387d6671e5f6c2b390fe066fc7548407ebd688bc4205d4b9d48728"
+     ],
+     "name": "app-editor",
+     "paths": [
+      "editor/*/*/*/*"
+     ],
+     "terminating": false,
+     "threshold": 1
+    }
+   ]
+  },
+  "expires": "2026-10-25T13:42:42Z",
+  "spec_version": "1.0.31",
+  "targets": {},
+  "version": 2
+ }
+}

@@ -1,0 +1,102 @@
+# Line endings and diff behaviour, pinned in the repository rather than left to
+# each clone's `core.autocrlf`. Git for Windows defaults that to `true`, which
+# would rewrite checked-out files — and some files here must survive byte for
+# byte. See the fixtures and vendor sections below.
+
+# ------------------------------------------------------------------- default
+#
+# Normalise to LF in the repository and in the working tree. Everything in this
+# tree is already LF, so this pins the status quo rather than causing a
+# renormalisation.
+* text=auto eol=lf
+
+# ---------------------------------------------------- signed test fixtures
+#
+# TUF signatures cover canonical JSON bytes. An EOL rewrite on checkout would
+# invalidate every signature in these files, and the resulting interop failures
+# look nothing like a line-ending problem. `-text` disables conversion in both
+# directions while keeping the files readable in a diff.
+**/tests/fixtures/**            -text
+**/tests/fixtures/**/*.bin      binary
+
+# --------------------------------------------------------- vendored tuf fork
+#
+# Kept byte-identical to the crates.io package so the diff against upstream
+# shows only the six changes in PATCHES.md and nothing else.
+client/vendor/**                -text linguist-vendored
+client/vendor/tuf/tests/**      binary
+
+# ------------------------------------------------------------ binary content
+#
+# Key material and archives. Never converted, never diffed as text — a textual
+# diff of a DER key is noise at best and a partial key disclosure in a review
+# comment at worst.
+*.der       binary
+*.pk8       binary
+*.spki      binary
+*.kdbx      binary
+*.keyx      binary
+*.p12       binary
+*.pfx       binary
+*.jks       binary
+*.bin       binary
+*.exe       binary
+*.dll       binary
+*.so        binary
+*.dylib     binary
+*.pdb       binary
+*.zip       binary
+*.gz        binary
+*.tar       binary
+*.png       binary
+*.jpg       binary
+*.ico       binary
+*.pdf       binary
+
+# ------------------------------------------------------- runs inside a container
+#
+# These are consumed by Linux processes. A CRLF shebang is an exec failure with
+# an error message that names the wrong thing, so state the requirement rather
+# than relying on the default above staying put.
+*.sh            text eol=lf
+*.conf          text eol=lf
+Dockerfile      text eol=lf
+Dockerfile.*    text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+.env.example    text eol=lf
+
+# ----------------------------------------------------------- windows tooling
+#
+# The client is Windows-first (PLAN.md 6). Batch files genuinely require CRLF.
+# Note this normalises to LF in the repository and restores CRLF on checkout,
+# so it is byte-stable only for a file that was CRLF to begin with. An
+# Authenticode-signed script must therefore never be committed here — put it
+# under a tests/fixtures path, which is `-text` and preserved exactly.
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+*.psm1      text eol=crlf
+*.sln       text eol=crlf
+*.csproj    text eol=crlf
+
+# ------------------------------------------------------------------ diagrams
+#
+# mxGraph XML. A three-way merge of a diagram produces plausible-looking
+# corruption, so require a human to choose a side instead.
+*.drawio    text eol=lf merge=binary
+
+# -------------------------------------------------------------- diff drivers
+#
+# Better hunk headers: git names the enclosing function or section.
+*.py        diff=python
+*.rs        diff=rust
+*.md        diff=markdown
+*.h         diff=cpp
+*.c         diff=cpp
+*.cpp       diff=cpp
+*.cs        diff=csharp
+
+# Deliberately NOT marked linguist-generated: Cargo.lock and uv.lock are the
+# dependency review surface for supply-chain changes (PLAN.md 4.1), and
+# collapsing them by default in review is the opposite of what we want.

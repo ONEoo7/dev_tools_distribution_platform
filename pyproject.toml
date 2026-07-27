@@ -1,0 +1,65 @@
+[project]
+name = "dev-tools-distribution-platform"
+version = "0.1.0"
+description = "TUF-backed application update service"
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.uv.workspace]
+members = ["packages/*", "bindings/python"]
+
+[tool.uv.sources]
+dist-core = { workspace = true }
+dist-client = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "S", "A", "C4", "RUF"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "N806"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dist_core", "dist_ingest"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+# tuf and securesystemslib re-export their public API from submodules without
+# explicit `as` aliases, which strict mode otherwise rejects.
+implicit_reexport = true
+
+[[tool.mypy.overrides]]
+module = ["pykeepass.*"]
+ignore_missing_imports = true
+
+# hatchling is a build-time dependency, present only while a wheel is being
+# built and not in the dev environment. `bindings/python/hatch_build.py` runs
+# inside that build.
+[[tool.mypy.overrides]]
+module = ["hatchling.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    # Verifying a Sigstore bundle needs the Sigstore trust root, which is
+    # itself fetched over TUF. These tests skip rather than fail where that is
+    # unreachable, so an offline run still exercises everything else.
+    "network: requires outbound HTTPS to the Sigstore trust root",
+]

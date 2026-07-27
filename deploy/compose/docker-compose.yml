@@ -1,0 +1,44 @@
+# Distribution plane, self-hosted (PLAN.md sections 4 and 10.1).
+#
+# Only `edge` is reachable from outside. The repository volumes are mounted
+# read-only here; the signing worker that mounts them read-write has no inbound
+# listener at all and is added in a later phase.
+#
+# No service is given the Docker socket. Socket access is host root, and host
+# root is every volume including the keys.
+
+name: dist-platform
+
+services:
+  edge:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - "no-new-privileges:true"
+    ports:
+      - "${EDGE_BIND:-127.0.0.1}:${EDGE_PORT:-8080}:8080"
+    volumes:
+      - ./nginx/edge.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro
+      - tuf-metadata:/srv/repo/metadata:ro
+      - tuf-targets:/srv/repo/targets:ro
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    networks: [edge]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+networks:
+  edge:
+
+volumes:
+  # Written by the signing worker, read-only everywhere else.
+  tuf-metadata:
+  tuf-targets:

@@ -1,0 +1,14 @@
+# Local development override: serve a repository built on the host instead of
+# the named volumes.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Build the repository first with dist-core, then point REPO_DIR at it.
+# The mounts stay read-only so the edge behaves exactly as it does in
+# production.
+
+services:
+  edge:
+    volumes:
+      - ${REPO_DIR:-../../repo}/metadata:/srv/repo/metadata:ro
+      - ${REPO_DIR:-../../repo}/targets:/srv/repo/targets:ro
