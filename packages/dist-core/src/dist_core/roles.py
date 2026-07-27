@@ -45,11 +45,28 @@ class RolePolicy:
     threshold: int
     expiry: timedelta
 
+    #: How many keys a ceremony issues for this role. Distinct from
+    #: `threshold`, and the difference is what makes a lost key survivable:
+    #: issuing exactly `threshold` keys means every one of them is load-bearing
+    #: forever. Lose one root key under 3-of-3 and root can never be re-signed,
+    #: so once it expires every installed client is permanently unable to
+    #: accept anything -- with no recovery, because recovery is signed by the
+    #: keys you no longer have.
+    key_count: int = 1
 
-ROOT_POLICY = RolePolicy(ROOT, KeyStore.OFFLINE, 3, timedelta(days=365))
-TARGETS_POLICY = RolePolicy(TARGETS, KeyStore.OFFLINE, 2, timedelta(days=90))
-SNAPSHOT_POLICY = RolePolicy(SNAPSHOT, KeyStore.ONLINE, 1, timedelta(days=7))
-TIMESTAMP_POLICY = RolePolicy(TIMESTAMP, KeyStore.ONLINE, 1, timedelta(days=1))
+    def __post_init__(self) -> None:
+        if self.key_count < self.threshold:
+            raise ValueError(
+                f"{self.name}: key_count {self.key_count} is below threshold {self.threshold}"
+            )
+
+
+# PLAN.md 3.1. The spare keys are the point: root tolerates losing two,
+# targets one.
+ROOT_POLICY = RolePolicy(ROOT, KeyStore.OFFLINE, 3, timedelta(days=365), key_count=5)
+TARGETS_POLICY = RolePolicy(TARGETS, KeyStore.OFFLINE, 2, timedelta(days=90), key_count=3)
+SNAPSHOT_POLICY = RolePolicy(SNAPSHOT, KeyStore.ONLINE, 1, timedelta(days=7), key_count=1)
+TIMESTAMP_POLICY = RolePolicy(TIMESTAMP, KeyStore.ONLINE, 1, timedelta(days=1), key_count=1)
 
 TOP_LEVEL_POLICIES: dict[str, RolePolicy] = {
     p.name: p for p in (ROOT_POLICY, TARGETS_POLICY, SNAPSHOT_POLICY, TIMESTAMP_POLICY)

@@ -126,3 +126,40 @@ def test_rollout_vectors_are_stable() -> None:
         True,
         False,
     ]
+
+
+# ---------------------------------------------------- key counts vs thresholds
+
+
+def test_every_role_issues_at_least_its_threshold() -> None:
+    from dist_core.roles import TOP_LEVEL_POLICIES
+
+    for name, policy in TOP_LEVEL_POLICIES.items():
+        assert policy.key_count >= policy.threshold, name
+
+
+def test_the_offline_roles_carry_spare_keys() -> None:
+    """PLAN.md 3.1: root is 3-of-5 and targets 2-of-3.
+
+    The spares are the whole point. Issuing exactly `threshold` keys makes
+    every key load-bearing forever: lose one root key under 3-of-3 and root can
+    never be re-signed, so once it expires every installed client is stranded
+    with no way back -- recovery would have to be signed by the keys that are
+    gone.
+    """
+    from dist_core.roles import ROOT, TARGETS, TOP_LEVEL_POLICIES
+
+    root = TOP_LEVEL_POLICIES[ROOT]
+    assert (root.threshold, root.key_count) == (3, 5)
+
+    targets = TOP_LEVEL_POLICIES[TARGETS]
+    assert (targets.threshold, targets.key_count) == (2, 3)
+
+
+def test_a_policy_that_cannot_meet_its_own_threshold_is_refused() -> None:
+    from datetime import timedelta
+
+    from dist_core.roles import KeyStore, RolePolicy
+
+    with pytest.raises(ValueError, match="below threshold"):
+        RolePolicy("root", KeyStore.OFFLINE, 3, timedelta(days=1), key_count=2)

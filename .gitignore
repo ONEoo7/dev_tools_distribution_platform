@@ -25,7 +25,13 @@ secrets/
 # Anchored: these are the volume-backed directories at the repository root
 # (docs/PLAN.md 10.1). docker-compose.dev.yml bind-mounts ../../repo, which
 # resolves here.
+#
+# The glob matters: `scripts/ceremony.py --out` takes any path, so a ceremony
+# run as `--out ./repo-staging` would otherwise drop a signed repository into
+# the source tree. No private keys live there — those are in the keystores
+# below — but published metadata and release payloads do not belong in git.
 /repo/
+/repo-*/
 /quarantine/
 /telemetry/
 /crashdumps/
