@@ -32,7 +32,7 @@ ignore = ["S101"]
 "tests/*" = ["S", "N806"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["dist_core", "dist_ingest"]
+known-first-party = ["dist_client", "dist_core", "dist_ingest"]
 
 [tool.mypy]
 python_version = "3.13"

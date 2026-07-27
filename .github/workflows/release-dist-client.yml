@@ -1,0 +1,98 @@
+name: release dist-client
+
+# Publishes the Python binding as a wheel carrying the compiled TUF verifier.
+# Applications install it and get the verifier with it, rather than locating
+# and bundling a native library by hand.
+#
+#     git tag dist-client-v0.1.0 && git push origin dist-client-v0.1.0
+#
+# The tag prefix keeps this separate from any future release of the service
+# itself, which versions independently.
+on:
+  push:
+    tags: ["dist-client-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the release and upload assets
+  id-token: write # OIDC token for a Sigstore signing certificate
+  attestations: write # store SLSA provenance against each wheel digest
+
+jobs:
+  build:
+    # The wheel carries one compiled library, so it is platform-specific by
+    # construction and needs one job per platform it should support.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: win_amd64
+          - os: ubuntu-latest
+            name: linux_x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      # Builds the cdylib, stages it inside the package, builds the wheel, and
+      # fails if the library did not make it in. That last check is not
+      # ceremonial: .gitignore excludes compiled libraries, so a missing
+      # `artifacts` entry produces a wheel with no verifier and no error.
+      - name: Build the wheel
+        run: uv run python scripts/build_python_wheel.py
+
+      - name: Record the wheel and its digest
+        id: wheel
+        shell: bash
+        run: |
+          wheel=$(ls dist/dist_client-*.whl | head -1)
+          sha=$(python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$wheel")
+          echo "path=$wheel" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$wheel")" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "### $(basename "$wheel")" >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA-256 \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # A consuming application pins this digest, so the wheel that verifies
+      # every update is itself covered by attested provenance.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: ${{ steps.wheel.outputs.path }}
+
+      # Prove the wheel is self-contained before publishing it: install into a
+      # clean environment with no source checkout on the path and no
+      # DIST_CORE_LIB, and load the verifier.
+      - name: Verify the wheel stands alone
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP"
+          uv venv --python 3.13 check
+          uv pip install --python check "$GITHUB_WORKSPACE/${{ steps.wheel.outputs.path }}"
+          unset DIST_CORE_LIB
+          uv run --python check --no-project python -c "
+          import dist_client
+          assert dist_client.core_version() == '0.1.0', dist_client.core_version()
+          assert dist_client.in_rollout('install-2', 'editor', 50) is True
+          print('wheel is self-contained:', dist_client.core_version())
+          "
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="${{ github.ref_name }}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "$tag" \
+              --notes "Python binding for the dist-core TUF verifier. Each wheel carries the compiled verifier for one platform; pin the SHA-256 shown in the build summary."
+          fi
+          gh release upload "$tag" "${{ steps.wheel.outputs.path }}" --clobber

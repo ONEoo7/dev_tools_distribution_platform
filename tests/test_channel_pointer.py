@@ -17,6 +17,7 @@ import pathlib
 
 import pytest
 
+from dist_client._ffi import _library_name
 from dist_core.naming import (
     POINTER_FILE,
     POINTER_VERSION,
@@ -31,11 +32,7 @@ from dist_core.roles import app_role_name
 from dist_core.signing import InMemorySignerBackend
 
 LIBRARY = (
-    pathlib.Path(__file__).resolve().parents[1]
-    / "client"
-    / "target"
-    / "release"
-    / "dist_core_ffi.dll"
+    pathlib.Path(__file__).resolve().parents[1] / "client" / "target" / "release" / _library_name()
 )
 
 

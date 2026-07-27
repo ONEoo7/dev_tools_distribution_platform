@@ -1,0 +1,123 @@
+name: ci
+
+# Mirrors .gitlab-ci.yml, which describes the same checks but has nowhere to
+# run until the self-hosted GitLab exists. Keep the two in step.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_LINK_MODE: copy
+  ENV: ci
+  CARGO_TERM_COLOR: always
+
+jobs:
+  python:
+    # Both platforms on purpose. The verifier binding is loaded through ctypes
+    # and the install model is Windows-first, but the services run in Linux
+    # containers -- and PLAN.md 5.4 records a Windows-only symlink constraint
+    # that only a Windows job can catch regressing.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      # The binding tests exercise the real C ABI, so they need the real
+      # library. Without it they skip -- and a skipped test reads exactly like
+      # a passing one in a CI summary.
+      - name: Build the verifier
+        run: cargo build -p dist-core-ffi --release
+        working-directory: client
+
+      - run: uv sync --all-packages --locked
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy packages bindings
+
+      # The binding tests skip when the library is absent, and a skipped test
+      # reads exactly like a passing one in a CI summary. Assert the library is
+      # there rather than inspecting pytest's output for the word "skipped",
+      # which would also match an unrelated skip.
+      - name: Fail if the verifier was not built
+        shell: bash
+        run: |
+          lib=$(uv run python -c "from dist_client._ffi import _library_name; print(_library_name())")
+          test -f "client/target/release/$lib" || {
+            echo "::error::client/target/release/$lib is missing; the ABI tests would silently skip"
+            exit 1
+          }
+          echo "verifier present: $lib"
+
+      - name: Test
+        run: uv run pytest -q
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Format
+        run: cargo fmt --check
+        working-directory: client
+
+      # client/Cargo.toml denies unwrap, expect, panic and indexing in the
+      # verifier. A panic there is a denial of service on the update path.
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: client
+
+      - name: Test
+        run: cargo test --all-features
+        working-directory: client
+
+  # D1 mitigation: measure spec conformance rather than assume it. We ship a
+  # forked verifier, so this is the only independent check on those patches.
+  #
+  # continue-on-error while the remaining failures are untriaged -- see
+  # PLAN.md 11.2. It reports, it does not gate.
+  conformance:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Build the client under test
+        run: cargo build -p dist-conformance
+        working-directory: client
+
+      - name: Run the conformance suite
+        run: |
+          git clone --depth 1 https://github.com/theupdateframework/tuf-conformance.git /tmp/tuf-conformance
+          cd /tmp/tuf-conformance
+          uv venv && uv pip install -e .
+          uv run pytest tuf_conformance -q \
+            --entrypoint "$GITHUB_WORKSPACE/client/target/debug/dist-conformance"

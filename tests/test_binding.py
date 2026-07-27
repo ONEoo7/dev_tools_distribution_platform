@@ -19,15 +19,16 @@ import pathlib
 
 import pytest
 
+from dist_client._ffi import _library_name
+
 FIXTURES = (
     pathlib.Path(__file__).resolve().parents[1] / "client" / "dist-core-rs" / "tests" / "fixtures"
 )
+# Resolved per platform rather than hardcoded: a hardcoded `.dll` makes every
+# test in this file skip on Linux and macOS, and a skipped test is
+# indistinguishable from a passing one in a CI summary.
 LIBRARY = (
-    pathlib.Path(__file__).resolve().parents[1]
-    / "client"
-    / "target"
-    / "release"
-    / "dist_core_ffi.dll"
+    pathlib.Path(__file__).resolve().parents[1] / "client" / "target" / "release" / _library_name()
 )
 
 pytestmark = pytest.mark.skipif(

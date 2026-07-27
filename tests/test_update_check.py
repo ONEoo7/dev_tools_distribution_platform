@@ -19,17 +19,14 @@ import pathlib
 
 import pytest
 
+from dist_client._ffi import _library_name
 from dist_core.naming import ReleaseInfo, TargetKey
 from dist_core.repository import FileSystemRepository
 from dist_core.roles import app_role_name
 from dist_core.signing import InMemorySignerBackend
 
 LIBRARY = (
-    pathlib.Path(__file__).resolve().parents[1]
-    / "client"
-    / "target"
-    / "release"
-    / "dist_core_ffi.dll"
+    pathlib.Path(__file__).resolve().parents[1] / "client" / "target" / "release" / _library_name()
 )
 
 pytestmark = pytest.mark.skipif(
@@ -209,9 +206,9 @@ def test_a_validly_signed_redirect_is_still_refused(
     happily -- a different role legitimately owns that path -- and the user is
     handed someone else's binary.
     """
-    from dist_client.update import Channel, RedirectRefusedError, UpdateCheck
     from tuf.api.metadata import TargetFile, Targets
 
+    from dist_client.update import Channel, RedirectRefusedError, UpdateCheck
     from dist_core.naming import ChannelKey
 
     backend.generate(app_role_name(APP))
