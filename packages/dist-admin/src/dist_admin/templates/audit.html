@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Audit{% endblock %}
+{% block content %}
+<h1>Audit log</h1>
+<p class="note">
+  Every operator action, recorded as it happened. Registering a source is a
+  control action: it is the decision about whose builds this system will
+  consider signing.
+</p>
+<table>
+  <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Detail</th></tr></thead>
+  <tbody>
+    {% for event in events %}
+    <tr>
+      <td class="mono">{{ event.at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+      <td>{{ event.actor }}</td>
+      <td class="mono">{{ event.action }}</td>
+      <td class="mono detail">{{ event.detail }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="empty">Nothing recorded yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

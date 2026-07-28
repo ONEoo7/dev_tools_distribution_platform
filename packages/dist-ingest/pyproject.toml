@@ -5,6 +5,10 @@ description = "Forge release ingestion: quarantine, provenance gates and promoti
 requires-python = ">=3.13"
 dependencies = [
     "dist-core",
+    # The worker's queue and source registry. The security core below does not
+    # touch it: `provenance`, `attestation`, `gates` and `policy` know nothing
+    # about a database, and `sources.py` is the only bridge.
+    "dist-registry",
     "cryptography>=44",
     "httpx>=0.28",
     # Fulcio chain validation, SCTs, Rekor inclusion proofs and checkpoint
@@ -22,3 +26,4 @@ packages = ["src/dist_ingest"]
 
 [tool.uv.sources]
 dist-core = { workspace = true }
+dist-registry = { workspace = true }

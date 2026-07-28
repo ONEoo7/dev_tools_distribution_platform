@@ -106,10 +106,10 @@ uv pip install dist_client-0.1.0-py3-none-win_amd64.whl
 from dist_client.update import Channel, UpdateCheck
 
 available = UpdateCheck(
-    root=embedded_root_bytes,          # shipped in the build, never fetched
+    root=embedded_root_bytes,  # shipped in the build, never fetched
     channel=Channel("my-app", "stable", "windows", "amd64"),
-    fetch=my_http_get,                 # your existing HTTP client
-    install_id=stable_local_id,        # never transmitted; rollout is local
+    fetch=my_http_get,  # your existing HTTP client
+    install_id=stable_local_id,  # never transmitted; rollout is local
 ).run()
 ```
 

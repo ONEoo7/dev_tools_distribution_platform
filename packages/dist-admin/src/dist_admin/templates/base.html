@@ -1,0 +1,28 @@
+{# Autoescaping is on and nothing here uses |safe. Every value below is either
+   operator input or a string a forge sent us. #}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Distribution admin{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header>
+    <a class="brand" href="/sources">distribution admin</a>
+    {% if operator %}
+    <nav>
+      <a href="/sources">Sources</a>
+      <a href="/audit">Audit</a>
+      <form method="post" action="/logout" class="inline">
+        <button type="submit" class="link">Sign out ({{ operator.username }})</button>
+      </form>
+    </nav>
+    {% endif %}
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

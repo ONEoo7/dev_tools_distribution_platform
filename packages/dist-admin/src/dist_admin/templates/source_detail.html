@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}{{ source.app_id }}{% endblock %}
+{% block content %}
+<div class="row">
+  <h1>{{ source.app_id }}</h1>
+  <span class="status status-{{ source.status }}">{{ source.status.replace("_", " ") }}</span>
+</div>
+
+{% if source.status == status.PENDING_DELEGATION %}
+<div class="callout">
+  <h2>Waiting for a signing ceremony</h2>
+  <p>
+    The project checks out and its releases are usable. Before anything can be
+    served to a client, <span class="mono">app-{{ source.app_id }}</span> has to
+    be delegated in <span class="mono">targets.json</span> &mdash; and
+    <span class="mono">targets</span> signs with an offline key that is not on
+    this host. No web form can do that step, which is the point of it.
+  </p>
+  <p>On the machine holding <span class="mono">offline.kdbx</span>:</p>
+  <pre>uv run python -m dist_registry.delegate {{ source.app_id }}{% if source.critical %} --critical{% endif %}</pre>
+  <p>This source becomes active once that delegation exists.</p>
+</div>
+{% elif source.status == status.INVALID %}
+<div class="callout error-callout">
+  <h2>The forge disagreed</h2>
+  <p class="mono">{{ source.last_error or "no detail recorded" }}</p>
+</div>
+{% elif source.status == status.VALIDATING %}
+<div class="callout">
+  <p>Queued for the ingest worker. This page does not refresh itself &mdash; reload it.</p>
+</div>
+{% endif %}
+
+<h2>Registration</h2>
+<table class="detail-table">
+  <tr><th>Forge</th><td>{{ source.forge }}</td></tr>
+  <tr><th>Project</th><td class="mono">{{ source.project }}</td></tr>
+  <tr><th>Project URL</th><td class="mono">{{ source.project_url }}</td></tr>
+  <tr><th>API base</th><td class="mono">{{ source.api_base }}</td></tr>
+  <tr><th>Installer asset</th><td class="mono">{{ source.asset_name }}</td></tr>
+  <tr><th>Tag prefix</th><td class="mono">{{ source.tag_prefix }}</td></tr>
+  <tr><th>Required ref prefix</th><td class="mono">{{ source.require_tag_ref_prefix }}</td></tr>
+  <tr><th>Key custody</th>
+      <td>{{ "offline — every release needs a ceremony" if source.critical
+             else "online — releases auto-promote once every gate passes" }}</td></tr>
+  {% if source.forge == "github" %}
+  <tr><th>Workflow</th><td class="mono">{{ source.workflow_uri }}</td></tr>
+  <tr><th>OIDC issuer</th><td class="mono">{{ source.oidc_issuer }}</td></tr>
+  <tr><th>Repository id</th><td class="mono">{{ source.repository_id or "— read during validation" }}</td></tr>
+  <tr><th>Owner id</th><td class="mono">{{ source.repository_owner_id or "— read during validation" }}</td></tr>
+  <tr><th>Runner environment</th><td class="mono">{{ source.runner_environment }}</td></tr>
+  {% else %}
+  <tr><th>Builder id</th><td class="mono">{{ source.builder_id }}</td></tr>
+  <tr><th>Builder key id</th><td class="mono">{{ source.builder_keyid }}</td></tr>
+  <tr><th>Attestation asset</th><td class="mono">{{ source.attestation_asset }}</td></tr>
+  {% endif %}
+  <tr><th>Added by</th><td>{{ source.created_by }}</td></tr>
+</table>
+
+<h2>Actions</h2>
+<div class="actions">
+  <form method="post" action="/sources/{{ source.id }}/validate" class="inline">
+    <input type="hidden" name="csrf" value="{{ operator.csrf }}">
+    <button type="submit">Re-check against the forge</button>
+  </form>
+  <form method="post" action="/sources/{{ source.id }}/poll" class="inline">
+    <input type="hidden" name="csrf" value="{{ operator.csrf }}">
+    <button type="submit" {% if not source.pollable %}disabled
+      title="Only an active source is polled; artifacts fetched now could not be promoted"{% endif %}>Check for a release now</button>
+  </form>
+  {% if source.status == status.ACTIVE %}
+  <form method="post" action="/sources/{{ source.id }}/pause" class="inline">
+    <input type="hidden" name="csrf" value="{{ operator.csrf }}">
+    <button type="submit">Pause polling</button>
+  </form>
+  {% endif %}
+  <form method="post" action="/sources/{{ source.id }}/delete" class="inline">
+    <input type="hidden" name="csrf" value="{{ operator.csrf }}">
+    <button type="submit" class="danger">Remove source</button>
+  </form>
+</div>
+<p class="note">
+  Removing a source stops ingestion. It does not revoke the delegation or
+  withdraw anything already published &mdash; both are signing operations.
+</p>
+
+<h2>Recent jobs</h2>
+<table>
+  <thead><tr><th>Requested</th><th>Kind</th><th>State</th><th>By</th><th>Result</th></tr></thead>
+  <tbody>
+    {% for job in jobs %}
+    <tr>
+      <td class="mono">{{ job.requested_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+      <td>{{ job.kind }}</td>
+      <td><span class="status status-job-{{ job.state }}">{{ job.state }}</span></td>
+      <td>{{ job.requested_by }}</td>
+      <td class="mono detail">{{ job.error or job.result or "" }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="empty">No jobs yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p><a href="/sources">Back to sources</a></p>
+{% endblock %}

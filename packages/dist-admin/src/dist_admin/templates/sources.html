@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Sources{% endblock %}
+{% block content %}
+<div class="row">
+  <h1>Release sources</h1>
+  <span class="actions">
+    <a class="button" href="/sources/new?forge=github">Add GitHub repo</a>
+    <a class="button" href="/sources/new?forge=gitlab">Add GitLab project</a>
+  </span>
+</div>
+
+{% if not sources %}
+<p class="empty">
+  No sources yet. Adding one registers a forge project as a candidate source of
+  installers for an application &mdash; it does not, on its own, make this
+  system willing to sign for it.
+</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>Application</th><th>Forge</th><th>Project</th><th>Installer</th><th>Keys</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+    {% for source in sources %}
+    <tr>
+      <td><a href="/sources/{{ source.id }}">{{ source.app_id }}</a></td>
+      <td>{{ source.forge }}</td>
+      <td class="mono">{{ source.project }}</td>
+      <td class="mono">{{ source.asset_name }}</td>
+      <td>{{ "offline" if source.critical else "online" }}</td>
+      <td><span class="status status-{{ source.status }}">{{ source.status.replace("_", " ") }}</span></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

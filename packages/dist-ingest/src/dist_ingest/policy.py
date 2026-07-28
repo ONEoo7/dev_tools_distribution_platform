@@ -72,6 +72,34 @@ class Outcome:
         return self.decision is Promotion.PROMOTE
 
 
+def _verify(envelope: bytes, sha256: str, policy: ProvenancePolicy) -> Provenance:
+    """Verify an attestation by whichever route this policy's forge signs with.
+
+    PLAN.md 4.1 describes two ways of establishing who signed, and which one
+    applies is a property of the policy rather than of the caller: a policy
+    carrying certificate identities came from a forge that signs with Sigstore,
+    and one carrying trusted builders came from a forge that signs with a key
+    we pinned. `ProvenancePolicy` refuses to construct with neither, so there
+    is no third case.
+
+    Dispatching on the policy rather than sniffing the envelope is deliberate.
+    The envelope is attacker-influenced input; letting its shape select the
+    verification route would let an attacker choose which check to face.
+
+    The `sigstore` import is local on purpose. `provenance.py` keeps that
+    dependency out of the fixed-key path, and importing `attestation` at module
+    scope here would undo that for every caller.
+
+    Raises:
+        ProvenanceError: on any failure.
+    """
+    if policy.trusted_identities:
+        from dist_ingest.attestation import verify_sigstore_provenance
+
+        return verify_sigstore_provenance(envelope, sha256, policy)
+    return verify_provenance(envelope, sha256, policy)
+
+
 def ingest(
     source: BinaryIO,
     policy: AppIngestPolicy,
@@ -99,7 +127,7 @@ def ingest(
         )
 
     try:
-        provenance = verify_provenance(envelope, admitted.sha256, policy.provenance)
+        provenance = _verify(envelope, admitted.sha256, policy.provenance)
     except ProvenanceError as e:
         return Outcome(Promotion.REJECT, f"provenance rejected: {e}", admitted=admitted)
 

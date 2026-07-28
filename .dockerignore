@@ -1,0 +1,27 @@
+# The build context is the repository root, because the workspace lockfile and
+# every member's pyproject.toml have to be in it. Everything the Python
+# services do not need is excluded here — most importantly the Rust build
+# directory, which is larger than the rest of the repository combined.
+
+.git/
+.github/
+.venv/
+**/__pycache__/
+**/*.pyc
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+client/target/
+client/
+tests/
+docs/
+
+# Never in an image layer. See .gitignore.
+.env
+.env.*
+!.env.example
+*.kdbx
+*.key
+*.pem
+repo/

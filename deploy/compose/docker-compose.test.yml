@@ -1,0 +1,31 @@
+# A throwaway Postgres for `tests/test_registry_store.py`.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml up -d postgres-test
+#   DIST_TEST_DATABASE_URL=postgresql://test:test@127.0.0.1:55432/dist_test \
+#     uv run pytest tests/test_registry_store.py
+#
+# Deliberately a *separate server*, not a published port on the one the stack
+# uses. The store tests `TRUNCATE` every table, and pointing them at the
+# running registry deletes the operator accounts along with everything else —
+# which is exactly what happened the first time this file did the simpler
+# thing.
+#
+# `tmpfs` for the data directory: this database is meant to be lost.
+services:
+  postgres-test:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_DB: dist_test
+      POSTGRES_PASSWORD: test
+      PGDATA: /var/lib/postgresql/data/pgdata
+    tmpfs:
+      - /var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:55432:5432"
+    networks: [front]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d dist_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20

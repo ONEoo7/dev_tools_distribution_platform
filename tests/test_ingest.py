@@ -28,6 +28,8 @@ from dist_ingest.provenance import (
     DSSE_PAYLOAD_TYPE,
     IN_TOTO_STATEMENT_V1,
     SLSA_PROVENANCE_V1,
+    CertificateIdentity,
+    Provenance,
     ProvenanceError,
     ProvenancePolicy,
     TrustedBuilder,
@@ -505,3 +507,75 @@ def test_promotion_reverifies_the_staged_bytes(quarantine: Quarantine, tmp_path:
 
     with pytest.raises(QuarantineError, match="was modified"):
         quarantine.promote(admitted.sha256, tmp_path / "out.bin")
+
+
+# ------------------------------------------------- choosing the verification route
+
+
+def test_a_certificate_identity_policy_verifies_through_sigstore(
+    quarantine: Quarantine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A GitHub source must not be checked by the fixed-key path.
+
+    `ingest` originally called `verify_provenance` unconditionally, so a
+    Sigstore bundle — which is not a bare DSSE envelope — was rejected for
+    having no `payloadType` rather than being verified at all. That reads as a
+    failed attestation when it is really an unwired code path, and no mocked
+    test caught it because none of them fed `ingest` a bundle.
+    """
+    import dist_ingest.attestation as attestation_module
+
+    seen: list[bytes] = []
+
+    def fake_verify(bundle: bytes, sha256: str, policy: ProvenancePolicy) -> Provenance:
+        seen.append(bundle)
+        return Provenance(
+            builder_id=BUILDER_ID,
+            source_uri=PROJECT,
+            source_ref="refs/tags/v1.4.2",
+            subject_name="Editor-1.4.2.zip",
+            subject_sha256=sha256,
+        )
+
+    monkeypatch.setattr(attestation_module, "verify_sigstore_provenance", fake_verify)
+
+    policy = app_policy(
+        ProvenancePolicy(
+            trusted_builders=(),
+            project_url=PROJECT,
+            trusted_identities=(
+                CertificateIdentity(
+                    workflow_uri="https://github.com/o/r/.github/workflows/release.yml",
+                    issuer="https://token.actions.githubusercontent.com",
+                    repository="o/r",
+                    repository_id="1",
+                    repository_owner_id="2",
+                ),
+            ),
+        ),
+        critical=False,
+    )
+
+    outcome = ingest(io.BytesIO(PAYLOAD), policy, quarantine, envelope=b'{"a bundle": true}')
+
+    assert seen == [b'{"a bundle": true}'], "the sigstore path was not taken"
+    assert outcome.decision is not Promotion.REJECT or "provenance" not in outcome.reason
+
+
+def test_the_route_is_chosen_by_policy_not_by_the_envelope(
+    quarantine: Quarantine, provenance_policy: ProvenancePolicy
+) -> None:
+    """The envelope is attacker-influenced input.
+
+    Selecting the verification route from its shape would let an attacker
+    choose which check to face; selecting it from the policy means the forge an
+    operator configured decides.
+    """
+    policy = app_policy(provenance_policy, critical=False)
+
+    # A bundle-shaped payload against a fixed-key policy is rejected, not
+    # quietly rerouted to the certificate path.
+    outcome = ingest(io.BytesIO(PAYLOAD), policy, quarantine, envelope=b'{"a bundle": true}')
+
+    assert outcome.decision is Promotion.REJECT
+    assert "provenance rejected" in outcome.reason

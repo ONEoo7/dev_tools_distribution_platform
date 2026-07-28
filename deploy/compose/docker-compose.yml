@@ -35,10 +35,145 @@ services:
       timeout: 3s
       retries: 3
 
+  # ------------------------------------------------------------------ admin
+  #
+  # The operator UI (PLAN.md 8). It is on the `control` network with the
+  # database and on no network that reaches a forge. It has no signing key, no
+  # forge credential, and no route to either. Registering a source writes rows
+  # and queues a job; everything else is somebody else's capability.
+  admin:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile
+      target: admin
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - "no-new-privileges:true"
+    ports:
+      # Loopback by default, like the edge. PLAN.md 2 gives the admin plane no
+      # inbound path from clients at all; exposing it means putting an
+      # authenticating TLS terminator in front, not changing this line.
+      - "${ADMIN_BIND:-127.0.0.1}:${ADMIN_PORT:-8081}:8081"
+    environment:
+      DIST_DATABASE_URL: "postgresql://dist:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/dist"
+      DIST_ADMIN_HOST: "0.0.0.0"
+      DIST_ADMIN_PORT: "8081"
+      # Creates the `admin` operator on first start only. Once an operator
+      # exists this is ignored, so leaving it set cannot reset a password.
+      DIST_ADMIN_BOOTSTRAP_PASSWORD: "${ADMIN_BOOTSTRAP_PASSWORD:-}"
+      DIST_ADMIN_SECURE_COOKIE: "${ADMIN_SECURE_COOKIE:-0}"
+    tmpfs:
+      - /tmp
+    # `front` carries the published port; `control` reaches the database.
+    # A published port needs a non-internal network — which also gives this
+    # container ordinary outbound access. That is a real limit on how much
+    # isolation the network buys here, and the reason the guarantees this
+    # service actually rests on are capability-shaped rather than
+    # network-shaped: no forge credential, no signing key, no code path to
+    # either. See the README.
+    networks: [front, control]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ----------------------------------------------------------------- worker
+  #
+  # Holds the read-only forge credential. Publishes no port and joins no
+  # network anything can reach it on: it takes work from the queue and reaches
+  # outward. That asymmetry is what PLAN.md 2 means by "every credential is
+  # held by a component that untrusted input cannot reach directly".
+  worker:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile
+      target: worker
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      DIST_DATABASE_URL: "postgresql://dist:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/dist"
+      DIST_QUARANTINE_DIR: "/srv/quarantine"
+      # Prefer the file form: an environment variable is inherited by every
+      # child process and lands in a crash dump.
+      DIST_FORGE_TOKEN_FILE: "${FORGE_TOKEN_FILE:-}"
+      DIST_FORGE_TOKEN: "${FORGE_TOKEN:-}"
+      DIST_LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      # `sigstore` caches its trust root, which is itself fetched over TUF.
+      # The root filesystem is read-only, so it needs somewhere to put it —
+      # and it wants to be a volume rather than tmpfs, because refetching the
+      # trust root on every restart makes Sigstore's availability a dependency
+      # of ours for no benefit.
+      # Both, because it splits the trust root across the two: the cached
+      # metadata lands under CACHE and the trusted root under DATA, and being
+      # given only one produces a confusing "failed to refresh TUF metadata"
+      # rather than a permissions error.
+      XDG_CACHE_HOME: "/var/cache/dist"
+      XDG_DATA_HOME: "/var/lib/dist"
+    volumes:
+      - quarantine:/srv/quarantine
+      - sigstore-cache:/var/cache/dist
+      - sigstore-data:/var/lib/dist
+    tmpfs:
+      - /tmp
+    networks: [control, forge]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # --------------------------------------------------------------- postgres
+  #
+  # No published port. It holds the source registry, the queue and the audit
+  # log — no signing keys and no TUF metadata — so losing it costs the
+  # registry, not the trust root.
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dist
+      POSTGRES_DB: dist
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [control]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dist -d dist"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 networks:
   edge:
+  # Carries the admin plane's published port, and nothing else joins it.
+  front:
+  # Admin, worker and database. Internal, so postgres has no route off the
+  # host and cannot be reached except by the two services on this network.
+  control:
+    internal: true
+  # The worker's outbound path. Separate from `control` so that reaching the
+  # forge and reaching the database are distinct capabilities, and so that
+  # adding public egress (PLAN.md 4.2) is visible as a network a service joins
+  # rather than as a firewall rule elsewhere.
+  forge:
 
 volumes:
   # Written by the signing worker, read-only everywhere else.
   tuf-metadata:
   tuf-targets:
+  pgdata:
+  # Content-addressed artifacts awaiting promotion. Never served.
+  quarantine:
+  # Sigstore's TUF trust root. Cache, not state: safe to delete, costs a
+  # refetch.
+  sigstore-cache:
+  sigstore-data:

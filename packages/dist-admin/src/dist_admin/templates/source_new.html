@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Add a source{% endblock %}
+{% macro value(name, fallback='') %}{{ values.get(name, fallback) }}{% endmacro %}
+{% block content %}
+<div class="narrow">
+<h1>Add a {{ "GitHub repository" if forge == "github" else "GitLab project" }}</h1>
+
+<p class="note">
+  This registers a project as a source of candidate installers. Appearing in a
+  release is not evidence of anything, so nothing here grants trust: every
+  artifact is still admitted to quarantine and checked against the build
+  attestation described below before it can be signed.
+</p>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<form method="post" action="/sources">
+  <input type="hidden" name="csrf" value="{{ operator.csrf }}">
+  <input type="hidden" name="forge" value="{{ forge }}">
+
+  <fieldset>
+    <legend>Application</legend>
+    <label>Application id
+      <input name="app_id" required pattern="[a-z0-9][a-z0-9-]{1,62}" value="{{ value('app_id') }}">
+      <small>Lower case, digits and hyphens. Becomes the TUF role <span class="mono">app-&lt;id&gt;</span> and a path segment, so it cannot be changed later.</small>
+    </label>
+    <label class="check">
+      <input type="checkbox" name="critical" {% if values.get('critical') %}checked{% endif %}>
+      Critical &mdash; sign with an offline delegated key
+      <small>Releases then require a human signing ceremony and can never be promoted automatically. Choose this for anything whose compromise you could not absorb.</small>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Project</legend>
+    <label>Project path
+      <input name="project" required placeholder="owner/repo" value="{{ value('project') }}">
+    </label>
+    <label>API base
+      <input name="api_base" value="{{ value('api_base', api_base) }}">
+      <small>The worker will reach this host and no other. Change it only for a self-hosted instance.</small>
+    </label>
+    <label>Installer asset
+      <input name="asset_name" required placeholder="app-setup-x64.exe" value="{{ value('asset_name') }}">
+      <small>Exact filename attached to the release. One source per artifact you distribute.</small>
+    </label>
+    <label>Tag prefix
+      <input name="tag_prefix" value="{{ value('tag_prefix', 'v') }}">
+      <small>Stripped to get the version: <span class="mono">v1.2.3</span> &rarr; <span class="mono">1.2.3</span>.</small>
+    </label>
+  </fieldset>
+
+  {% if forge == "github" %}
+  <fieldset>
+    <legend>Build identity</legend>
+    <p class="note">
+      GitHub Actions has no long-lived signing key. Fulcio issues a certificate
+      per workflow run, and these are the claims pinned from it. The
+      repository's numeric ids are read from GitHub during validation rather
+      than typed &mdash; a repository can be renamed and its name re-registered
+      by someone else, and only the numeric id survives that.
+    </p>
+    <label>Release workflow URI
+      <input name="workflow_uri" required
+             placeholder="https://github.com/owner/repo/.github/workflows/release.yml"
+             value="{{ value('workflow_uri') }}">
+      <small>Without a ref. The ref changes every release and is checked separately.</small>
+    </label>
+    <label>OIDC issuer
+      <input name="oidc_issuer" value="{{ value('oidc_issuer', 'https://token.actions.githubusercontent.com') }}">
+    </label>
+    <label>Runner environment
+      <input name="runner_environment" value="{{ value('runner_environment', 'github-hosted') }}">
+      <small>A self-hosted runner is hardware the repository owner controls, so it can emit structurally genuine attestations for arbitrary bytes.</small>
+    </label>
+  </fieldset>
+  {% else %}
+  <fieldset>
+    <legend>Build identity</legend>
+    <p class="note">
+      GitLab CI signs with a key you control, so the trust anchor is that
+      public key rather than a certificate. Both the key id and the builder id
+      are checked, and they must correspond.
+    </p>
+    <label>Builder id
+      <input name="builder_id" required placeholder="https://gitlab.example.com/owner/repo/-/ci" value="{{ value('builder_id') }}">
+    </label>
+    <label>Builder key id
+      <input name="builder_keyid" required value="{{ value('builder_keyid') }}">
+    </label>
+    <label>Builder public key (PEM)
+      <textarea name="builder_public_key_pem" rows="6" required>{{ value('builder_public_key_pem') }}</textarea>
+    </label>
+    <label>Attestation asset
+      <input name="attestation_asset" value="{{ value('attestation_asset', 'provenance.intoto.jsonl') }}">
+      <small>GitLab has no attestations API, so the envelope is fetched as a release asset by name.</small>
+    </label>
+  </fieldset>
+  {% endif %}
+
+  <fieldset>
+    <legend>Gates</legend>
+    <label>Required ref prefix
+      <input name="require_tag_ref_prefix" value="{{ value('require_tag_ref_prefix', 'refs/tags/') }}">
+      <small>What stops a build from an unprotected branch being accepted.</small>
+    </label>
+    <label>Maximum asset size (bytes)
+      <input name="max_asset_bytes" value="{{ value('max_asset_bytes', '2147483648') }}">
+    </label>
+  </fieldset>
+
+  <button type="submit">Add source</button>
+  <a class="cancel" href="/sources">Cancel</a>
+</form>
+</div>
+{% endblock %}
