@@ -46,6 +46,12 @@ services:
       context: ../..
       dockerfile: deploy/compose/Dockerfile
       target: admin
+      args:
+        # Optional. Set them and a stale container names the revision it is
+        # running; leave them and the content digest still does the job:
+        #   DIST_BUILD_REF=$(git rev-parse --short HEAD) docker compose build
+        DIST_BUILD_REF: "${DIST_BUILD_REF:-}"
+        DIST_BUILD_TIME: "${DIST_BUILD_TIME:-}"
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
@@ -96,6 +102,12 @@ services:
       context: ../..
       dockerfile: deploy/compose/Dockerfile
       target: worker
+      args:
+        # Optional. Set them and a stale container names the revision it is
+        # running; leave them and the content digest still does the job:
+        #   DIST_BUILD_REF=$(git rev-parse --short HEAD) docker compose build
+        DIST_BUILD_REF: "${DIST_BUILD_REF:-}"
+        DIST_BUILD_TIME: "${DIST_BUILD_TIME:-}"
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
@@ -109,6 +121,10 @@ services:
       DIST_FORGE_TOKEN_FILE: "${FORGE_TOKEN_FILE:-}"
       DIST_FORGE_TOKEN: "${FORGE_TOKEN:-}"
       DIST_LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      # Gates this deployment does not run, named one by one. Empty means
+      # every gate must be configured or ingestion refuses. A skipped gate
+      # is recorded against the release as skipped, never as passed.
+      DIST_SKIP_GATES: "${SKIP_GATES:-}"
       # `sigstore` caches its trust root, which is itself fetched over TUF.
       # The root filesystem is read-only, so it needs somewhere to put it —
       # and it wants to be a volume rather than tmpfs, because refetching the
@@ -127,6 +143,56 @@ services:
     tmpfs:
       - /tmp
     networks: [control, forge]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ----------------------------------------------------------------- signer
+  #
+  # The only component that may write TUF metadata, and the only one holding
+  # the online keys. It joins `control` and nothing else: it cannot reach a
+  # forge, publishes no port, and has no HTTP client in its dependencies.
+  #
+  # It signs what ingestion approved, named by digest in the job payload, and
+  # reads that artifact from quarantine mounted read-only. `root` and `targets`
+  # are absent by construction — those live in `offline.kdbx`, so this process
+  # can publish releases for an application that already has a delegation and
+  # cannot create one.
+  signer:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile
+      target: signer
+      args:
+        DIST_BUILD_REF: "${DIST_BUILD_REF:-}"
+        DIST_BUILD_TIME: "${DIST_BUILD_TIME:-}"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      DIST_DATABASE_URL: "postgresql://dist:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/dist"
+      DIST_REPO_DIR: "/srv/repo"
+      DIST_QUARANTINE_DIR: "/srv/quarantine"
+      DIST_ONLINE_KDBX: "/srv/keys/online.kdbx"
+      # Prefer the file form, as with the forge token: an environment variable
+      # is inherited by every child process and lands in a crash dump, and this
+      # one unlocks the keys that sign everything clients accept.
+      DIST_ONLINE_KDBX_PASSWORD_FILE: "${ONLINE_KDBX_PASSWORD_FILE:-}"
+      DIST_ONLINE_KDBX_PASSWORD: "${ONLINE_KDBX_PASSWORD:-}"
+      DIST_ONLINE_KDBX_KEYFILE: "${ONLINE_KDBX_KEYFILE:-}"
+      DIST_LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    volumes:
+      # The one service that mounts these read-write.
+      - tuf-metadata:/srv/repo/metadata
+      - tuf-targets:/srv/repo/targets
+      # Read-only: it signs what is there and cannot remove the evidence.
+      - quarantine:/srv/quarantine:ro
+      - signing-keys:/srv/keys:ro
+    tmpfs:
+      - /tmp
+    networks: [control]
     depends_on:
       postgres:
         condition: service_healthy
@@ -177,3 +243,7 @@ volumes:
   # refetch.
   sigstore-cache:
   sigstore-data:
+  # `online.kdbx` — snapshot, timestamp and the per-application roles. Mounted
+  # read-only into the signer and into nothing else. The offline store holding
+  # `root` and `targets` is deliberately not represented here at all.
+  signing-keys:

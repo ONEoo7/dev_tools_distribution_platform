@@ -9,12 +9,24 @@ in front, not changing this default.
 
 from __future__ import annotations
 
+import logging
 import os
 
 import uvicorn
 
+from dist_core.buildinfo import describe
+
 
 def main() -> None:
+    # Before uvicorn takes over logging, so this is the first line in the
+    # container's log. A service rebuilt while another was not goes on running
+    # older code and reporting failures that describe a tree no longer on disk.
+    logging.basicConfig(
+        level=os.environ.get("DIST_LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    logging.getLogger("dist_admin").info(describe("dist-admin"))
+
     uvicorn.run(
         "dist_admin.app:create_app",
         factory=True,

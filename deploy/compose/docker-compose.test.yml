@@ -1,14 +1,30 @@
 # A throwaway Postgres for `tests/test_registry_store.py`.
 #
-#   docker compose -f docker-compose.yml -f docker-compose.test.yml up -d postgres-test
-#   DIST_TEST_DATABASE_URL=postgresql://test:test@127.0.0.1:55432/dist_test \
+#   docker compose -p dist-test -f docker-compose.test.yml up -d postgres-test
+#   DIST_TEST_DATABASE_URL=postgresql://test:test@127.0.0.1:15432/dist_test \
 #     uv run pytest tests/test_registry_store.py
+#
+# `-p dist-test` rather than a `name:` key in this file: a second `name:` would
+# take effect if anyone combined this with docker-compose.yml, and would bring
+# the whole stack up under the wrong project, orphaning the running one. The
+# flag cannot do that by accident.
+#
+# The port is what goes wrong here. Unset, the store tests skip with a reason;
+# set to a port nothing is listening on, they spend the connect timeout and
+# then fail with `ConnectionTimeout`, which reads like a broken database rather
+# than a wrong number. This comment said 55432 for a while after the port moved.
 #
 # Deliberately a *separate server*, not a published port on the one the stack
 # uses. The store tests `TRUNCATE` every table, and pointing them at the
 # running registry deletes the operator accounts along with everything else —
 # which is exactly what happened the first time this file did the simpler
 # thing.
+#
+# Self-contained, so it runs without `-f docker-compose.yml`. It joined the
+# stack's `front` network once, which meant the admin container could reach a
+# database whose password is the string "test", and meant this file could not
+# be used on its own. Neither was worth anything: the tests reach it through
+# the published loopback port, not through a Docker network.
 #
 # `tmpfs` for the data directory: this database is meant to be lost.
 services:
@@ -22,8 +38,11 @@ services:
     tmpfs:
       - /var/lib/postgresql/data
     ports:
-      - "127.0.0.1:55432:5432"
-    networks: [front]
+      # Below the Windows dynamic range. 55432 sat inside an excluded port
+      # range WinNAT reassigns across restarts, so it bound one day and refused
+      # the next with a message about socket permissions that was nothing of
+      # the sort.
+      - "127.0.0.1:${TEST_PG_PORT:-15432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U test -d dist_test"]
       interval: 5s

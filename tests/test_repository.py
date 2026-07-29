@@ -97,3 +97,34 @@ def test_signed_rollout_metadata_reaches_the_client(
     info = updater.get_targetinfo(published.key.path)
     assert info is not None
     assert ReleaseInfo.from_custom(info.unrecognized_fields["custom"]).rollout_pct == 25
+
+
+def test_published_files_are_readable_by_the_serving_process(
+    repo: FileSystemRepository, backend: InMemorySignerBackend, tmp_path: Path
+) -> None:
+    """The edge runs as a different user and must be able to read these.
+
+    `NamedTemporaryFile` creates at 0600, which is right for a scratch file and
+    wrong for a repository: it produced a signed, correct, and completely
+    unserveable set of metadata -- every request answered 403 while the files
+    on disk looked fine.
+    """
+    import stat
+
+    from dist_core.naming import ReleaseInfo, TargetKey
+    from dist_core.roles import app_role_name
+
+    backend.generate(app_role_name("editor"))
+    repo.add_app("editor")
+    payload = tmp_path / "Editor.zip"
+    payload.write_bytes(b"payload")
+    key = TargetKey("editor", "stable", "windows", "amd64", "1.0.0", "Editor.zip")
+    repo.add_release(key, payload, ReleaseInfo(version="1.0.0"))
+
+    written = [*repo.metadata_dir.rglob("*.json"), *repo.targets_dir.rglob("*")]
+    assert written
+    for path in written:
+        if not path.is_file():
+            continue
+        mode = stat.S_IMODE(path.stat().st_mode)
+        assert mode & stat.S_IROTH, f"{path.name} is not world-readable ({oct(mode)})"

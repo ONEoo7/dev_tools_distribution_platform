@@ -21,7 +21,7 @@ Conn = psycopg.Connection[DictRow]
 Pool = ConnectionPool[Conn]
 
 #: Bumped when `schema.sql` changes in a way that is not idempotent on its own.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 #: Arbitrary but fixed. Any two processes applying this schema must pick the
 #: same number or the lock does not serialise anything.

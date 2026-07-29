@@ -15,6 +15,7 @@ members = [
     "dist-core",
     "dist-ingest",
     "dist-registry",
+    "dist-sign",
 ]
 
 [[package]]
@@ -499,6 +500,21 @@ dependencies = [
 requires-dist = [
     { name = "dist-core", editable = "packages/dist-core" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
+]
+
+[[package]]
+name = "dist-sign"
+version = "0.1.0"
+source = { editable = "packages/dist-sign" }
+dependencies = [
+    { name = "dist-core" },
+    { name = "dist-registry" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dist-core", editable = "packages/dist-core" },
+    { name = "dist-registry", editable = "packages/dist-registry" },
 ]
 
 [[package]]

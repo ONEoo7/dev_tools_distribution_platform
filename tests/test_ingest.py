@@ -579,3 +579,62 @@ def test_the_route_is_chosen_by_policy_not_by_the_envelope(
 
     assert outcome.decision is Promotion.REJECT
     assert "provenance rejected" in outcome.reason
+
+
+# ------------------------------------------------------- explicitly skipped gates
+
+
+def test_an_unconfigured_gate_still_refuses() -> None:
+    """Skipping must be a decision, not the default.
+
+    An absent scanner is a misconfiguration and has to stay loud; only a gate
+    named in `skip` is passed over.
+    """
+    from dist_ingest.gates import ContentGates, GateNotConfiguredError, run_content_gates
+
+    with pytest.raises(GateNotConfiguredError):
+        run_content_gates(Path("x"), "app", ContentGates(), sbom=b"sbom")
+
+
+def test_a_named_gate_is_skipped_and_reported(tmp_path: Path) -> None:
+    from dist_ingest.gates import ContentGates, run_content_gates
+
+    artifact = tmp_path / "a.zip"
+    artifact.write_bytes(b"x")
+    gates = ContentGates(skip=frozenset({"malware", "publisher", "sbom"}))
+
+    skipped = run_content_gates(artifact, "app", gates, sbom=None)
+
+    assert sorted(skipped) == ["malware", "publisher", "sbom"]
+
+
+def test_skipping_one_gate_does_not_skip_the_others(tmp_path: Path) -> None:
+    # The point of naming them individually: giving up the malware scan must
+    # not quietly give up the publisher check as well.
+    from dist_ingest.gates import ContentGates, GateNotConfiguredError, run_content_gates
+
+    artifact = tmp_path / "a.zip"
+    artifact.write_bytes(b"x")
+
+    with pytest.raises(GateNotConfiguredError, match="publisher"):
+        run_content_gates(artifact, "app", ContentGates(skip=frozenset({"malware"})), sbom=b"sbom")
+
+
+def test_the_environment_names_gates_individually(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dist_ingest.sources import skipped_gates
+
+    monkeypatch.setenv("DIST_SKIP_GATES", "malware, sbom")
+    assert skipped_gates() == frozenset({"malware", "sbom"})
+
+    monkeypatch.delenv("DIST_SKIP_GATES")
+    assert skipped_gates() == frozenset()
+
+
+def test_an_unknown_gate_name_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A typo would otherwise silently leave a gate running that the operator
+    # believed they had turned off, or vice versa.
+    from dist_ingest.sources import SourceConfigError, skipped_gates
+
+    monkeypatch.setenv("DIST_SKIP_GATES", "malware,all")
+    with pytest.raises(SourceConfigError, match="unknown gates"):
+        skipped_gates()

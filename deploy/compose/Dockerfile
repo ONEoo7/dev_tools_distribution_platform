@@ -28,16 +28,17 @@ COPY packages/dist-core/pyproject.toml packages/dist-core/
 COPY packages/dist-ingest/pyproject.toml packages/dist-ingest/
 COPY packages/dist-registry/pyproject.toml packages/dist-registry/
 COPY packages/dist-admin/pyproject.toml packages/dist-admin/
+COPY packages/dist-sign/pyproject.toml packages/dist-sign/
 COPY bindings/python/pyproject.toml bindings/python/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-workspace \
-      --package dist-admin --package dist-ingest
+      --package dist-admin --package dist-ingest --package dist-sign
 
 COPY packages/ packages/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --package dist-admin --package dist-ingest
+    uv sync --locked --package dist-admin --package dist-ingest --package dist-sign
 
 # Neither service needs to write to its own code, and neither runs as root.
 RUN useradd --system --uid 10001 --create-home dist
@@ -47,10 +48,22 @@ RUN useradd --system --uid 10001 --create-home dist
 # *fresh* named volume from the image's directory, ownership included. A volume
 # that already exists keeps whatever it had, so changing this line means
 # removing the volume as well.
-RUN mkdir -p /srv/quarantine /var/cache/dist /var/lib/dist \
- && chown 10001:10001 /srv/quarantine /var/cache/dist /var/lib/dist
+RUN mkdir -p /srv/quarantine /srv/repo/metadata /srv/repo/targets /srv/keys \
+             /var/cache/dist /var/lib/dist \
+ && chown 10001:10001 /srv/quarantine /srv/repo /srv/repo/metadata /srv/repo/targets \
+                      /srv/keys /var/cache/dist /var/lib/dist
 
 USER 10001
+
+# Last, so changing them does not invalidate the dependency or source layers.
+#
+# Both default to empty rather than to a placeholder: `dist_core.buildinfo`
+# then reports the content digest alone, which needs no build argument and is
+# the identifier that actually answers "is this container running my tree".
+ARG DIST_BUILD_REF=""
+ARG DIST_BUILD_TIME=""
+ENV DIST_BUILD_REF=${DIST_BUILD_REF} \
+    DIST_BUILD_TIME=${DIST_BUILD_TIME}
 
 
 FROM base AS admin
@@ -62,3 +75,11 @@ FROM base AS worker
 # No EXPOSE. This service has no inbound listener, which is the property that
 # lets it hold the forge credential (PLAN.md 2).
 CMD ["python", "-m", "dist_ingest.worker"]
+
+
+FROM base AS signer
+# No EXPOSE and no network client in its dependencies. This is the only
+# component that may write TUF metadata, and it holds the online keys, so the
+# set of things that can reach it is kept as close to empty as the runtime
+# allows.
+CMD ["python", "-m", "dist_sign.worker"]

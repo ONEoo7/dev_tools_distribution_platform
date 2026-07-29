@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ source.app_id }}{% endblock %}
+{#
+  Same markers as source_new.html, and for the same reason: a field marked one
+  way when it is registered and another way when it is edited is worse than no
+  marker at all.
+#}
+{% macro req() %}<span class="req" aria-hidden="true">*</span>{% endmacro %}
+{% macro opt() %}<span class="opt" aria-hidden="true">(optional)</span>{% endmacro %}
+{% block content %}
+<div class="narrow">
+<div class="row">
+  <h1>Edit {{ source.app_id }}</h1>
+  <span class="status status-{{ source.status }}">{{ source.status.replace("_", " ") }}</span>
+</div>
+
+<p class="note">
+  Only settings that decide how a release is <em>handled</em> can be changed
+  here. The application id, forge, project, API base and the provenance pins
+  are not editable: a delegation was granted on the strength of those, and
+  changing one would re-point a signing role somebody already approved at a
+  different project. To change any of them, remove this source and register it
+  again &mdash; which puts it back through validation and the ceremony,
+  deliberately.
+</p>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<form method="post" action="/sources/{{ source.id }}/edit">
+  <input type="hidden" name="csrf" value="{{ operator.csrf }}">
+
+  <fieldset>
+    <legend>Release selection</legend>
+    <label>Installer asset {{ req() }}
+      <input name="asset_name" class="mono" required value="{{ source.asset_name }}">
+      <small>
+        The file to take from each release. <span class="mono">{version}</span>
+        is replaced with the release version. Changing this picks a different
+        artifact of the same release &mdash; still verified, because the
+        attestation covers the bytes actually downloaded, not the filename.
+      </small>
+    </label>
+    <label>Tag prefix {{ opt() }}
+      <input name="tag_prefix" class="mono" value="{{ source.tag_prefix }}">
+      <small>Stripped from the tag to get the version. Applies to the tag, not to the filename.</small>
+    </label>
+    <label>Required ref prefix {{ req() }}
+      <input name="require_tag_ref_prefix" class="mono" required
+             value="{{ source.require_tag_ref_prefix }}">
+      <small>
+        Must start with <span class="mono">refs/</span>. This is what stops a
+        build from an unprotected branch being accepted.
+      </small>
+    </label>
+    <label>Maximum asset size (bytes) {{ req() }}
+      <input name="max_asset_bytes" type="number" min="1" required
+             value="{{ source.max_asset_bytes }}">
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Where it publishes</legend>
+    <label>Channel {{ req() }}
+      <input name="channel" class="mono" required value="{{ source.channel }}">
+    </label>
+    <label>Platform {{ req() }}
+      <input name="platform" class="mono" required value="{{ source.platform }}">
+    </label>
+    <label>Architecture {{ req() }}
+      <input name="arch" class="mono" required value="{{ source.arch }}">
+      <small>
+        These three are the path a client resolves:
+        <span class="mono">{{ source.app_id }}/{{ source.channel }}/{{ source.platform }}-{{ source.arch }}/</span>.
+        Changing them publishes future releases elsewhere; installs following
+        the old path stop seeing updates.
+      </small>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Custody</legend>
+    <label class="check">
+      <input type="checkbox" name="critical" {% if source.critical %}checked{% endif %}>
+      Critical &mdash; sign with an offline delegated key {{ opt() }}
+      <small>
+        Releases then require a human signing ceremony and can never be
+        promoted automatically.
+      </small>
+    </label>
+  </fieldset>
+
+  <button type="submit">Save changes</button>
+  <a class="cancel" href="/sources/{{ source.id }}">Cancel</a>
+</form>
+</div>
+{% endblock %}

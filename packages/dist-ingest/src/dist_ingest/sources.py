@@ -15,6 +15,7 @@ forge is GitHub. A row in the database is not a way to name a new destination.
 
 from __future__ import annotations
 
+import os
 from urllib.parse import urlsplit
 
 import httpx
@@ -26,6 +27,7 @@ from dist_ingest.forge import (
     GitLabReleaseSource,
     ReleaseSource,
 )
+from dist_ingest.gates import ContentGates
 from dist_ingest.policy import AppIngestPolicy
 from dist_ingest.provenance import CertificateIdentity, ProvenancePolicy, TrustedBuilder
 from dist_registry.models import Forge, Source
@@ -62,6 +64,12 @@ def release_source(source: Source, client: httpx.Client) -> ReleaseSource:
             allowed_download_hosts=_github_hosts(source.api_base),
             tag_prefix=source.tag_prefix,
             max_asset_bytes=source.max_asset_bytes or DEFAULT_MAX_ASSET_BYTES,
+            # Both only feed the cheap "has anything changed" check. The
+            # repository id is the one written by `record_identity` during
+            # validation, so the feed is checked against a number this system
+            # read from the forge rather than one an operator typed.
+            project_url=source.project_url,
+            repository_id=source.repository_id,
         )
     return GitLabReleaseSource(
         source.project,
@@ -155,4 +163,24 @@ def ingest_policy(source: Source) -> AppIngestPolicy:
         app_id=source.app_id,
         critical=source.critical,
         provenance=provenance_policy(source),
+        content_gates=ContentGates(skip=skipped_gates()),
     )
+
+
+def skipped_gates() -> frozenset[str]:
+    """Gates this deployment has been told not to run.
+
+    `DIST_SKIP_GATES=malware,publisher,sbom`. Named individually and never
+    wildcarded: "skip everything" is a setting somebody adds for one artifact
+    and leaves on, whereas naming each gate makes the list itself the record of
+    what was given up.
+
+    A skipped gate is reported as skipped, never as passed — see
+    `run_content_gates`.
+    """
+    raw = os.environ.get("DIST_SKIP_GATES", "")
+    named = {part.strip() for part in raw.split(",") if part.strip()}
+    unknown = named - {"malware", "publisher", "sbom"}
+    if unknown:
+        raise SourceConfigError(f"DIST_SKIP_GATES names unknown gates: {sorted(unknown)}")
+    return frozenset(named)

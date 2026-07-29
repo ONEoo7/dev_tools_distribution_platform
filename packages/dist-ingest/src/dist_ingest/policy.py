@@ -66,6 +66,11 @@ class Outcome:
     admitted: Admitted | None = None
     provenance: Provenance | None = None
     archive: ArchiveReport | None = None
+    #: Gates the operator chose not to run. Recorded rather than dropped: a
+    #: release promoted without a malware scan is a fact about that release,
+    #: and the place to notice it is the record, not someone's memory of how
+    #: the deployment was configured.
+    skipped_gates: tuple[str, ...] = ()
 
     @property
     def promoted(self) -> bool:
@@ -133,7 +138,7 @@ def ingest(
 
     try:
         archive = inspect_archive(admitted.path, policy.archive_limits)
-        run_content_gates(admitted.path, policy.app_id, policy.content_gates, sbom=sbom)
+        skipped = run_content_gates(admitted.path, policy.app_id, policy.content_gates, sbom=sbom)
     except GateError as e:
         return Outcome(
             Promotion.REJECT,
@@ -149,14 +154,24 @@ def ingest(
             admitted=admitted,
             provenance=provenance,
             archive=archive,
+            skipped_gates=tuple(skipped),
         )
 
+    # The reason names what was skipped rather than claiming everything
+    # passed. "all gates passed" beside a skipped malware scan is the kind of
+    # record that misleads a reader months later.
+    ran = (
+        "all gates passed"
+        if not skipped
+        else f"gates passed, {'/'.join(skipped)} skipped by configuration"
+    )
     return Outcome(
         Promotion.PROMOTE,
-        f"all gates passed; built by {provenance.builder_id} at {provenance.source_ref}",
+        f"{ran}; built by {provenance.builder_id} at {provenance.source_ref}",
         admitted=admitted,
         provenance=provenance,
         archive=archive,
+        skipped_gates=tuple(skipped),
     )
 
 

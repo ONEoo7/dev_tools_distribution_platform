@@ -74,6 +74,24 @@ small { display: block; font-weight: 400; margin-top: 0.2rem; }
 .mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.85em; }
 .detail { color: var(--muted); word-break: break-word; }
 
+/* Required and optional markers on form labels.
+ *
+ * The asterisk is not the only signal: every required input also carries the
+ * `required` attribute, so a field is announced as required by the browser and
+ * by assistive technology whether or not the marker is noticed. `aria-hidden`
+ * on the marker keeps it from being read out a second time as "star". */
+.req {
+  color: var(--bad);
+  font-weight: 600;
+  margin-left: 0.15rem;
+}
+.opt {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.875rem;
+  margin-left: 0.35rem;
+}
+
 table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; }
 th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 thead th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }

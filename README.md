@@ -125,6 +125,13 @@ carrying SLSA provenance:
 gh attestation verify <wheel> --repo ONEoo7/dev_tools_distribution_platform
 ```
 
+The `app_id` the application asks for is the same string an operator registers
+it under, and the two are checked nowhere: get them out of step and the
+application requests a channel that does not exist and reports "no updates"
+indefinitely. That, and the other fields worth getting right the first time,
+are covered in
+[the Compose README](deploy/compose/README.md#adding-a-repository-and-where-it-stops).
+
 ## Status
 
 | Phase | State |

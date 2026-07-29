@@ -36,10 +36,16 @@ from typing import Any
 
 import httpx
 
+from dist_core.buildinfo import describe
 from dist_ingest.forge import ForgeError, ReleaseSource
 from dist_ingest.policy import Outcome, Promotion, ingest
 from dist_ingest.quarantine import Quarantine
-from dist_ingest.sources import SourceConfigError, client_for, ingest_policy, release_source
+from dist_ingest.sources import (
+    SourceConfigError,
+    client_for,
+    ingest_policy,
+    release_source,
+)
 from dist_registry import db, store
 from dist_registry.models import Job, JobKind, JobState, Source, SourceStatus
 from dist_registry.store import Conn
@@ -53,6 +59,11 @@ POLL_INTERVAL = timedelta(minutes=15)
 #: A job claimed and not finished within this is assumed to belong to a worker
 #: that died, and is requeued.
 STALE_AFTER = timedelta(minutes=30)
+#: How many consecutive "nothing changed" answers to accept before polling the
+#: API anyway. At `POLL_INTERVAL` this is about six hours — long enough that
+#: the quota saving is the normal case, short enough that a feed which has
+#: quietly stopped reflecting reality cannot hide a release for a working day.
+MAX_CONSECUTIVE_SKIPS = 24
 
 
 class _Stopping:
@@ -99,8 +110,13 @@ def do_validate(source: Source, client: httpx.Client) -> dict[str, Any]:
     asset = release.asset(source.asset_name)
     if asset is None:
         available = ", ".join(a.name for a in release.assets) or "none"
+        # Report the resolved name, and the pattern too when it differs.
+        # "no asset named 'app-{version}.zip'" sends the reader looking for a
+        # file with a literal brace in it.
+        wanted = release.resolve_asset_name(source.asset_name)
+        pattern = "" if wanted == source.asset_name else f" (from {source.asset_name!r})"
         raise ForgeError(
-            f"release {release.tag} has no asset named {source.asset_name!r} (it has: {available})"
+            f"release {release.tag} has no asset named {wanted!r}{pattern} (it has: {available})"
         )
 
     return {
@@ -128,7 +144,8 @@ def do_poll(source: Source, client: httpx.Client, quarantine: Quarantine) -> dic
         return {"outcome": "no release"}
     asset = release.asset(source.asset_name)
     if asset is None:
-        raise ForgeError(f"release {release.tag} has no asset named {source.asset_name!r}")
+        wanted = release.resolve_asset_name(source.asset_name)
+        raise ForgeError(f"release {release.tag} has no asset named {wanted!r}")
 
     with TemporaryDirectory() as scratch:
         staged = Path(scratch) / "asset"
@@ -150,7 +167,7 @@ def do_poll(source: Source, client: httpx.Client, quarantine: Quarantine) -> dic
         with staged.open("rb") as handle:
             outcome = ingest(handle, policy, quarantine, envelope=envelope)
 
-    return _outcome_record(release.tag, release.version, written, outcome)
+    return _outcome_record(release.tag, release.version, asset.name, written, outcome)
 
 
 def _sha256_of(path: Path) -> str:
@@ -161,10 +178,16 @@ def _sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _outcome_record(tag: str, version: str, written: int, outcome: Outcome) -> dict[str, Any]:
+def _outcome_record(
+    tag: str, version: str, filename: str, written: int, outcome: Outcome
+) -> dict[str, Any]:
     record: dict[str, Any] = {
         "tag": tag,
         "version": version,
+        # The resolved name, not the configured pattern. It becomes the last
+        # segment of the TUF target path, so the signer must be handed the
+        # actual filename rather than something with `{version}` still in it.
+        "filename": filename,
         "bytes": written,
         "decision": str(outcome.decision),
         "reason": outcome.reason,
@@ -177,6 +200,34 @@ def _outcome_record(tag: str, version: str, written: int, outcome: Outcome) -> d
 
 
 # ------------------------------------------------------------------- loop
+
+
+def _hand_off_to_signer(conn: Conn, source: Source, job: Job, result: dict[str, Any]) -> None:
+    """Queue a publish job for an artifact the policy approved.
+
+    Queued *after* the poll job is finished, not during it: the partial unique
+    index allows one open job per source, so enqueuing while this one is still
+    `running` would silently return `None` and the artifact would sit in
+    quarantine with nothing scheduled to sign it.
+
+    Only `PROMOTE` is handed on. `HOLD_FOR_CEREMONY` means the app's key is
+    offline and a human must sign it, which is the entire point of marking an
+    application critical — queueing it here would route it to a worker holding
+    online keys, which is exactly the thing that must not happen.
+    """
+    if job.kind is not JobKind.POLL:
+        return
+    if result.get("decision") != str(Promotion.PROMOTE):
+        return
+
+    payload = {
+        "sha256": result["sha256"],
+        "version": result["version"],
+        "filename": result["filename"],
+        "tag": result["tag"],
+    }
+    if store.enqueue(conn, source.id, JobKind.PUBLISH, requested_by="ingest", payload=payload):
+        log.info("queued publish for %s %s", source.app_id, result["version"])
 
 
 def run_job(conn: Conn, job: Job, quarantine: Quarantine, token: str | None) -> None:
@@ -222,6 +273,7 @@ def run_job(conn: Conn, job: Job, quarantine: Quarantine, token: str | None) -> 
                     detail=result,
                 )
         store.finish_job(conn, job.id, JobState.DONE, result=result)
+        _hand_off_to_signer(conn, source, job, result)
 
     # Deliberately broad. The narrow list above it is what this code expects to
     # go wrong; anything else is a bug, and a bug that escapes here leaves the
@@ -241,14 +293,73 @@ def run_job(conn: Conn, job: Job, quarantine: Quarantine, token: str | None) -> 
             store.set_status(conn, source.id, SourceStatus.INVALID, error=message)
 
 
+def _unchanged_since_last_poll(
+    conn: Conn, source: Source, token: str | None
+) -> dict[str, Any] | None:
+    """Ask the forge cheaply whether polling is worth it.
+
+    Returns a record to file against the source when nothing has changed, or
+    `None` to poll properly. `None` is the safe answer and every uncertain path
+    returns it: no previous poll, no hint available, a hint that disagrees, a
+    feed that errored, or too many skips in a row.
+
+    The comparison is against the tag of the last poll that *finished*, not
+    against what the feed said last time. A feed is a hint; what was actually
+    ingested is a fact, and comparing against the fact means a wrong hint costs
+    at most one wasted cycle instead of permanently wedging a source.
+    """
+    last = store.last_poll(conn, source.id)
+    known = (last.result or {}).get("tag") if last else None
+    if not isinstance(known, str) or not known:
+        return None
+
+    # A feed that goes quiet — repository renamed, feed withdrawn, a forge
+    # serving a stale document — would otherwise stop this source updating
+    # with nothing in the log to say so. Reconciling on a fixed count bounds
+    # how long that can last without needing a second source of truth.
+    skips = (last.result or {}).get("consecutive_skips", 0) if last else 0
+    if not isinstance(skips, int) or skips >= MAX_CONSECUTIVE_SKIPS:
+        return None
+
+    try:
+        with client_for(source, token) as client:
+            hint = release_source(source, client).newest_tag_hint()
+    except (ForgeError, httpx.HTTPError, SourceConfigError) as exc:
+        # Never fatal. The cheap check is an optimisation, and an optimisation
+        # that can stop ingestion is not one.
+        log.info("cheap check for %s failed, polling instead: %s", source.app_id, exc)
+        return None
+
+    if hint is None or hint != known:
+        return None
+
+    return {
+        "outcome": "unchanged",
+        "tag": known,
+        "via": "release feed",
+        "consecutive_skips": skips + 1,
+    }
+
+
 def tick(conn: Conn, quarantine: Quarantine, token: str | None) -> bool:
     """One pass. Returns whether any work was done."""
     store.reset_stale_jobs(conn, STALE_AFTER)
 
     for source in store.sources_due_for_poll(conn, POLL_INTERVAL):
-        store.enqueue(conn, source.id, JobKind.POLL, requested_by="schedule")
+        unchanged = _unchanged_since_last_poll(conn, source, token)
+        if unchanged is None:
+            store.enqueue(conn, source.id, JobKind.POLL, requested_by="schedule")
+            continue
+        # Filed as a finished poll rather than silently skipped. It keeps the
+        # 15-minute cadence honest — `sources_due_for_poll` measures from the
+        # last finished poll, so skipping without a record would re-check the
+        # feed on every tick — and it puts "we looked, nothing changed, no API
+        # quota spent" in the place an operator already reads.
+        job = store.enqueue(conn, source.id, JobKind.POLL, requested_by="schedule")
+        if job is not None:
+            store.finish_job(conn, job.id, JobState.DONE, result=unchanged)
 
-    job = store.claim_job(conn)
+    job = store.claim_job(conn, (JobKind.VALIDATE, JobKind.POLL))
     if job is None:
         return False
     run_job(conn, job, quarantine, token)
@@ -260,6 +371,12 @@ def main() -> int:
         level=os.environ.get("DIST_LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    # First line out, before anything can fail. A container rebuilt for one
+    # service and not another goes on behaving like an older tree, and reports
+    # failures describing code that is no longer on disk; this is what makes
+    # that visible rather than deduced.
+    log.info(describe("dist-ingest.worker"))
+
     quarantine = Quarantine(Path(os.environ.get("DIST_QUARANTINE_DIR", "/srv/quarantine")))
     token = forge_token()
     if token is None:

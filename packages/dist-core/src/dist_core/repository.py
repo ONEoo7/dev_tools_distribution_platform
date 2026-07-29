@@ -173,12 +173,24 @@ class FileSystemRepository(Repository):
             # client bootstrap without first knowing its version.
             self._atomic_write(self._metadata_dir / "root.json", data)
 
-    @staticmethod
-    def _atomic_write(path: Path, data: bytes) -> None:
+    #: Everything this class writes is *published*: the edge serves it to
+    #: anyone. `NamedTemporaryFile` creates at 0600, which is the right default
+    #: for a temporary file and the wrong one for a repository — the serving
+    #: process runs as a different user and would get a 403 on metadata it is
+    #: supposed to hand out. Set explicitly rather than left to umask, which
+    #: differs between a developer's shell and a container.
+    #:
+    #: Nothing secret is written here. The keys are in the keystore; these are
+    #: signatures over public bytes.
+    _PUBLISHED_MODE = 0o644
+
+    @classmethod
+    def _atomic_write(cls, path: Path, data: bytes) -> None:
         with NamedTemporaryFile(dir=path.parent, delete=False, suffix=".tmp") as handle:
             handle.write(data)
             handle.flush()
             temp = Path(handle.name)
+        temp.chmod(cls._PUBLISHED_MODE)
         temp.replace(path)
 
     def store_payload(self, target_path: str, target_file: TargetFile, source: Path) -> None:
@@ -196,6 +208,7 @@ class FileSystemRepository(Repository):
             temp = Path(handle.name)
             with source.open("rb") as src:
                 copyfileobj(src, handle)
+        temp.chmod(self._PUBLISHED_MODE)
         temp.replace(destination)
 
     # ------------------------------------------------------------- operations
@@ -344,6 +357,16 @@ class FileSystemRepository(Repository):
         """Re-sign snapshot then timestamp. Timestamp is always written last."""
         self.do_snapshot()
         self.do_timestamp()
+
+    @property
+    def app_roles(self) -> frozenset[str]:
+        """Delegated roles the published metadata actually carries.
+
+        Read from `targets.json` at construction, not from configuration, so a
+        caller asking "may I publish for this app" is answered by the signed
+        metadata rather than by a local belief about it.
+        """
+        return frozenset(self._app_roles)
 
     @property
     def metadata_dir(self) -> Path:

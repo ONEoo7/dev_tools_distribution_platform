@@ -31,6 +31,39 @@ docker compose run --rm admin python -m dist_admin.operators add alice
 
 Verify the edge with `curl http://127.0.0.1:8080/healthz`.
 
+### Knowing which code is running
+
+**Rebuild everything, not one service.** `admin` and `worker` are two targets of
+one image and share `dist-core`, `dist-registry` and `dist-ingest`, so
+`docker compose build admin` after editing shared code leaves the worker on the
+older tree — where it goes on reporting failures that describe code no longer on
+disk. Plain `docker compose build` rebuilds both.
+
+Each service says what it is running, as its first log line:
+
+```
+dist-ingest.worker starting; source 8f6a080b; built ce856bc at 2026-07-28T06:20:59Z
+```
+
+`source` is a digest over the installed `dist_*` package files, so it needs no
+build arguments and can be compared directly against a checkout:
+
+```bash
+uv run python -m dist_core.buildinfo     # the tree
+curl -s http://127.0.0.1:8081/healthz    # what the admin container is running
+docker compose logs worker | head -1     # what the worker container is running
+```
+
+Three matching values mean the containers are running your tree. A worker that
+disagrees with the other two is the case that is otherwise invisible.
+
+`built` is optional and only appears when the build was told:
+
+```bash
+DIST_BUILD_REF=$(git rev-parse --short HEAD) \
+DIST_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) docker compose build
+```
+
 ### Running against a locally built repository
 
 ```bash
@@ -48,6 +81,33 @@ This is the part worth reading before using the UI.
 **Registering a source is not the same as trusting it.** Adding a GitHub or
 GitLab project records a decision about where candidate installers come from.
 It creates nothing in TUF and grants nothing.
+
+### The four fields that are easy to get wrong
+
+Each of these is accepted as typed and fails somewhere else, later, so they are
+worth getting right the first time. A worked example, for an application whose
+GitHub repository is `ONEoo7/ai_tools_git_assistant`:
+
+| Field | Value | Why not the obvious thing |
+|---|---|---|
+| Application id | `git-assistant` | **Not the repository name.** It must be the id the *application* asks for — `APP_ID` in its updater configuration. They are often different, and a mismatch is silent: the app requests a channel that does not exist and reports "no updates" indefinitely. It becomes a TUF role name and a path segment, so it cannot be changed afterwards |
+| Project path | `ONEoo7/ai_tools_git_assistant` | The path alone, not the URL you copied from the browser. The host is the API base field, and pasting a full URL would otherwise discard the host it carries |
+| Installer asset | `git-assistant-{version}-windows-x64.zip` | `{version}` is substituted from the tag. A literal version matches exactly one release and then fails every poll — with nothing to suggest the cause is a field nobody has looked at since registration |
+| Release workflow URI | *leave blank* | Derives to `<project>/.github/workflows/release.yml`. Fill it in only if your release workflow is named something else |
+
+Two further notes on that table:
+
+- **Tag prefix** applies to the git *tag*, not the filename. With `v` the tag
+  `v1.2.3` yields version `1.2.3`, and that is what `{version}` becomes. An
+  asset named without a `v` is correct and expected.
+- **The artifact should be an archive, not a setup `.exe`.** The installer
+  stages a directory and promotes it to an A/B slot (PLAN.md 6.1); an `.exe`
+  that installs itself defeats rollback, and the archive gates that check for
+  traversal and decompression bombs have nothing to inspect.
+
+The form suggests corrections for the first two rather than applying them —
+these values cannot be edited after registration, so a silent fix would remove
+the one moment an operator would notice the stored value is not what they meant.
 
 A source moves through:
 
@@ -125,6 +185,40 @@ be updated to say, and this stack is where it becomes real.
 The allowlist is still per source and still narrow: `dist_ingest.sources`
 derives it from the API base an operator typed, so a database row cannot name a
 new destination.
+
+## Why most polls say "unchanged"
+
+A source's job history will mostly read:
+
+```json
+{"outcome": "unchanged", "tag": "v0.2.0", "via": "release feed", "consecutive_skips": 3}
+```
+
+That is a poll that ran and decided not to call the API. Before spending
+quota, the worker reads the project's release feed — `releases.atom`, which is
+not part of the REST API and, measured, is not counted against the rate limit.
+If the newest tag matches the one the last poll actually ingested, there is
+nothing to fetch.
+
+Three things about it are deliberate:
+
+- **The feed is a hint, never an authority.** Nothing is ingested on its say-so.
+  When it reports something new, the ordinary poll runs and the release is
+  fetched, hashed, checked against its Sigstore attestation and put through the
+  gates exactly as before.
+- **The comparison is against what was ingested, not against what the feed said
+  last time.** A wrong hint then costs one wasted cycle rather than wedging the
+  source.
+- **It gives up after `MAX_CONSECUTIVE_SKIPS` (about six hours).** A feed that
+  has quietly stopped reflecting reality — repository renamed, document stale —
+  would otherwise stop a source updating with nothing in the log to say so.
+
+Every uncertain path polls: no previous poll, a feed that errors, a feed for a
+repository whose numeric id does not match the one pinned at validation.
+
+This does not replace a token. Unauthenticated GitHub allows 60 requests an
+hour per address and a single poll spends two of them, so a burst of real
+releases can still exhaust it. Set `FORGE_TOKEN_FILE`; see `.env.example`.
 
 ## What a fully configured source still needs
 

@@ -17,7 +17,7 @@ written down what was true when the operator made the decision.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -54,6 +54,10 @@ class JobKind(StrEnum):
     VALIDATE = "validate"
     #: Fetch the latest release and run it through the ingestion policy.
     POLL = "poll"
+    #: Sign an approved artifact into the repository and make it current.
+    #: Claimed only by the signing worker, which is the one component holding
+    #: the online keys and the only one that may write TUF metadata.
+    PUBLISH = "publish"
 
 
 class JobState(StrEnum):
@@ -80,12 +84,22 @@ class Source:
     #: `critical` argument to `dist_core.roles.app_role_policy`.
     critical: bool
 
-    #: The release asset that is the installer. Exact name; a release carrying
-    #: several platforms' artifacts needs one source per app id.
+    #: The release asset that is the installer. May carry `{version}`, which
+    #: `ForgeRelease.resolve_asset_name` substitutes from the tag — without it,
+    #: a versioned filename matches exactly one release and then fails every
+    #: poll. A release carrying several platforms' artifacts needs one source
+    #: per app id.
     asset_name: str
     tag_prefix: str
     require_tag_ref_prefix: str
     max_asset_bytes: int
+
+    #: Where this source's artifact is published. One source is one artifact,
+    #: so these belong to the source rather than being decided at signing time
+    #: — a signer that hardcodes a platform misfiles artifacts silently.
+    channel: str = "stable"
+    platform: str = "windows"
+    arch: str = "amd64"
 
     # -- GitHub: certificate identity (PLAN.md 4.1, "Certificate identity")
     workflow_uri: str | None = None
@@ -118,7 +132,13 @@ class Source:
 
 @dataclass(frozen=True, slots=True)
 class Job:
-    """A unit of work for the component that holds the forge credential."""
+    """A unit of work for one of the two credential-holding services.
+
+    `kind` decides which: the ingest worker claims `validate` and `poll` and
+    holds the forge token; the signing worker claims `publish` and holds the
+    online keys. Neither claims the other's work, so a compromise of one does
+    not become an instruction the other will carry out.
+    """
 
     id: uuid.UUID
     source_id: uuid.UUID
@@ -129,6 +149,10 @@ class Job:
     started_at: datetime | None = None
     finished_at: datetime | None = None
     attempts: int = 0
+    #: What this job acts on, fixed when it was queued. A publish job names its
+    #: artifact by digest so the signer signs what ingestion approved rather
+    #: than whatever is newest in quarantine by the time it runs.
+    payload: dict[str, Any] = field(default_factory=dict)
     result: dict[str, Any] | None = None
     error: str | None = None
 

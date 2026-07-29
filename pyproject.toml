@@ -13,6 +13,7 @@ dist-core = { workspace = true }
 dist-client = { workspace = true }
 dist-registry = { workspace = true }
 dist-ingest = { workspace = true }
+dist-sign = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -38,7 +39,7 @@ ignore = ["S101"]
 "packages/dist-admin/src/dist_admin/app.py" = ["B008"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["dist_admin", "dist_client", "dist_core", "dist_ingest", "dist_registry"]
+known-first-party = ["dist_admin", "dist_client", "dist_core", "dist_ingest", "dist_registry", "dist_sign"]
 
 [tool.mypy]
 python_version = "3.13"

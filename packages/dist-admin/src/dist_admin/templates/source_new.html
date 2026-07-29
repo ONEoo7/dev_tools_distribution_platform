@@ -1,6 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Add a source{% endblock %}
 {% macro value(name, fallback='') %}{{ values.get(name, fallback) }}{% endmacro %}
+{#
+  Markers, as macros so that a field cannot be marked one way here and another
+  way three fieldsets down. `req` mirrors the `required` attribute on the input
+  and the server-side check; `opt` means the field has a working default, which
+  is already shown as its value.
+
+  aria-hidden on both: the input's own `required` attribute is what assistive
+  technology announces, and an unhidden marker would add "star" to it.
+#}
+{% macro req() %}<span class="req" aria-hidden="true">*</span>{% endmacro %}
+{% macro opt() %}<span class="opt" aria-hidden="true">(optional)</span>{% endmacro %}
 {% block content %}
 <div class="narrow">
 <h1>Add a {{ "GitHub repository" if forge == "github" else "GitLab project" }}</h1>
@@ -12,6 +23,17 @@
   attestation described below before it can be signed.
 </p>
 
+{#
+  The markers are spelled out here rather than reusing the macros: those are
+  aria-hidden, which is right on a field and wrong in the sentence that
+  explains them — it would be read out as "marks a required field".
+#}
+<p class="note">
+  Fields marked <span class="req">*</span> are required. Those marked
+  <span class="opt">(optional)</span> already carry a working default, shown as
+  the field's value &mdash; change them only if you need to.
+</p>
+
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
 <form method="post" action="/sources">
@@ -20,33 +42,54 @@
 
   <fieldset>
     <legend>Application</legend>
-    <label>Application id
+    <label>Application id {{ req() }}
       <input name="app_id" required pattern="[a-z0-9][a-z0-9-]{1,62}" value="{{ value('app_id') }}">
-      <small>Lower case, digits and hyphens. Becomes the TUF role <span class="mono">app-&lt;id&gt;</span> and a path segment, so it cannot be changed later.</small>
+      <small>
+        <strong>Must be the id the application asks for</strong>, which is set in its
+        own updater configuration &mdash; not the repository name. They are often
+        different, and a mismatch is silent: the application asks for a channel
+        that does not exist and reports no updates, indefinitely.
+        Lower case, digits and hyphens. Becomes the TUF role
+        <span class="mono">app-&lt;id&gt;</span> and a path segment, so it cannot be
+        changed later.
+      </small>
     </label>
     <label class="check">
       <input type="checkbox" name="critical" {% if values.get('critical') %}checked{% endif %}>
-      Critical &mdash; sign with an offline delegated key
+      Critical &mdash; sign with an offline delegated key {{ opt() }}
       <small>Releases then require a human signing ceremony and can never be promoted automatically. Choose this for anything whose compromise you could not absorb.</small>
     </label>
   </fieldset>
 
   <fieldset>
     <legend>Project</legend>
-    <label>Project path
+    <label>Project path {{ req() }}
       <input name="project" required placeholder="owner/repo" value="{{ value('project') }}">
+      <small>
+        Just the path &mdash; <span class="mono">owner/repo</span>, not the full URL.
+        The host is the API base below.
+      </small>
     </label>
-    <label>API base
+    <label>API base {{ opt() }}
       <input name="api_base" value="{{ value('api_base', api_base) }}">
       <small>The worker will reach this host and no other. Change it only for a self-hosted instance.</small>
     </label>
-    <label>Installer asset
-      <input name="asset_name" required placeholder="app-setup-x64.exe" value="{{ value('asset_name') }}">
-      <small>Exact filename attached to the release. One source per artifact you distribute.</small>
+    <label>Installer asset {{ req() }}
+      <input name="asset_name" required placeholder="app-{version}-windows-x64.zip" value="{{ value('asset_name') }}">
+      <small>
+        Filename attached to the release. Write <span class="mono">{version}</span> where the
+        version appears &mdash; an exact name stops matching the next time you ship.
+        One source per artifact you distribute.
+      </small>
     </label>
-    <label>Tag prefix
+    <label>Tag prefix {{ opt() }}
       <input name="tag_prefix" value="{{ value('tag_prefix', 'v') }}">
-      <small>Stripped to get the version: <span class="mono">v1.2.3</span> &rarr; <span class="mono">1.2.3</span>.</small>
+      <small>
+        Stripped from the <em>git tag</em> to get the version:
+        tag <span class="mono">v1.2.3</span> &rarr; version <span class="mono">1.2.3</span>.
+        That version is what <span class="mono">{version}</span> above becomes &mdash; it does
+        not change the asset filename, which usually carries no prefix of its own.
+      </small>
     </label>
   </fieldset>
 
@@ -60,16 +103,23 @@
       than typed &mdash; a repository can be renamed and its name re-registered
       by someone else, and only the numeric id survives that.
     </p>
-    <label>Release workflow URI
-      <input name="workflow_uri" required
+    <label>Release workflow URI {{ opt() }}
+      <input name="workflow_uri"
              placeholder="https://github.com/owner/repo/.github/workflows/release.yml"
              value="{{ value('workflow_uri') }}">
-      <small>Without a ref. The ref changes every release and is checked separately.</small>
+      <small>
+        Leave blank and it follows the project path:
+        <span class="mono">&lt;project&gt;/.github/workflows/release.yml</span>.
+        Fill it in if your release workflow is named something else. Either way
+        it is stored as a pin and shown on the source's page &mdash; check it
+        there before approving the delegation.
+        Without a ref: the ref changes every release and is checked separately.
+      </small>
     </label>
-    <label>OIDC issuer
+    <label>OIDC issuer {{ opt() }}
       <input name="oidc_issuer" value="{{ value('oidc_issuer', 'https://token.actions.githubusercontent.com') }}">
     </label>
-    <label>Runner environment
+    <label>Runner environment {{ opt() }}
       <input name="runner_environment" value="{{ value('runner_environment', 'github-hosted') }}">
       <small>A self-hosted runner is hardware the repository owner controls, so it can emit structurally genuine attestations for arbitrary bytes.</small>
     </label>
@@ -82,16 +132,16 @@
       public key rather than a certificate. Both the key id and the builder id
       are checked, and they must correspond.
     </p>
-    <label>Builder id
+    <label>Builder id {{ req() }}
       <input name="builder_id" required placeholder="https://gitlab.example.com/owner/repo/-/ci" value="{{ value('builder_id') }}">
     </label>
-    <label>Builder key id
+    <label>Builder key id {{ req() }}
       <input name="builder_keyid" required value="{{ value('builder_keyid') }}">
     </label>
-    <label>Builder public key (PEM)
+    <label>Builder public key (PEM) {{ req() }}
       <textarea name="builder_public_key_pem" rows="6" required>{{ value('builder_public_key_pem') }}</textarea>
     </label>
-    <label>Attestation asset
+    <label>Attestation asset {{ opt() }}
       <input name="attestation_asset" value="{{ value('attestation_asset', 'provenance.intoto.jsonl') }}">
       <small>GitLab has no attestations API, so the envelope is fetched as a release asset by name.</small>
     </label>
@@ -100,11 +150,11 @@
 
   <fieldset>
     <legend>Gates</legend>
-    <label>Required ref prefix
+    <label>Required ref prefix {{ opt() }}
       <input name="require_tag_ref_prefix" value="{{ value('require_tag_ref_prefix', 'refs/tags/') }}">
       <small>What stops a build from an unprotected branch being accepted.</small>
     </label>
-    <label>Maximum asset size (bytes)
+    <label>Maximum asset size (bytes) {{ opt() }}
       <input name="max_asset_bytes" value="{{ value('max_asset_bytes', '2147483648') }}">
     </label>
   </fieldset>

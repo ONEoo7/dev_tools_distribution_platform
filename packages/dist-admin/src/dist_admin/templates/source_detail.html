@@ -8,7 +8,7 @@
 
 {% if source.status == status.PENDING_DELEGATION %}
 <div class="callout">
-  <h2>Waiting for a signing ceremony</h2>
+  <h2>Waiting for its delegation</h2>
   <p>
     The project checks out and its releases are usable. Before anything can be
     served to a client, <span class="mono">app-{{ source.app_id }}</span> has to
@@ -16,9 +16,35 @@
     <span class="mono">targets</span> signs with an offline key that is not on
     this host. No web form can do that step, which is the point of it.
   </p>
-  <p>On the machine holding <span class="mono">offline.kdbx</span>:</p>
-  <pre>uv run python -m dist_registry.delegate {{ source.app_id }}{% if source.critical %} --critical{% endif %}</pre>
-  <p>This source becomes active once that delegation exists.</p>
+  <p>From the repository root:</p>
+  <pre>docker compose -f deploy/compose/docker-compose.yml exec signer \
+  python -m dist_registry.delegate {{ source.app_id }}{% if source.critical %} --critical{% endif %}</pre>
+  <p>
+    Run this first whichever situation you are in. It only <em>records</em> a
+    delegation: it reads the published <span class="mono">targets.json</span>,
+    and if <span class="mono">app-{{ source.app_id }}</span> is not delegated
+    there it refuses and says so rather than signing anything. So it needs no
+    offline key, and it cannot activate a source that has not actually been
+    delegated.
+  </p>
+  <p>
+    It runs in <span class="mono">signer</span> because that is the one service
+    mounting both the metadata volume and the database, which this needs to
+    read one and write the other.
+  </p>
+  <p>
+    <strong>If it reports that the role is not delegated</strong>, the ceremony
+    has genuinely not happened yet. Do that on the machine holding
+    <span class="mono">offline.kdbx</span> &mdash; see
+    <span class="mono">scripts/ceremony.py</span> &mdash; then run the command
+    above to record it.
+  </p>
+  <p>
+    A source that was deleted and registered again lands here even though its
+    delegation already exists, because the delegation lives in the signed
+    metadata and the registration does not. The command above is all that is
+    needed in that case.
+  </p>
 </div>
 {% elif source.status == status.INVALID %}
 <div class="callout error-callout">
@@ -59,6 +85,7 @@
 
 <h2>Actions</h2>
 <div class="actions">
+  <a class="button" href="/sources/{{ source.id }}/edit">Edit settings</a>
   <form method="post" action="/sources/{{ source.id }}/validate" class="inline">
     <input type="hidden" name="csrf" value="{{ operator.csrf }}">
     <button type="submit">Re-check against the forge</button>

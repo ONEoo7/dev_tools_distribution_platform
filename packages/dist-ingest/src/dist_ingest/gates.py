@@ -140,26 +140,53 @@ class ContentGates:
     publisher: PublisherCheck | None = None
     require_sbom: bool = True
 
+    #: Gates the operator has explicitly chosen not to run: `"malware"`,
+    #: `"publisher"`, `"sbom"`.
+    #:
+    #: Distinct from a gate being unconfigured, and deliberately so. An absent
+    #: scanner is a mistake and raises; a *named* skip is a decision, and one
+    #: that `run_content_gates` reports back so it can be recorded against the
+    #: release rather than forgotten. Nothing here ever makes a gate pass — a
+    #: skipped gate is reported as skipped, never as clean.
+    skip: frozenset[str] = frozenset()
 
-def run_content_gates(path: Path, app_id: str, gates: ContentGates, *, sbom: bytes | None) -> None:
+
+def run_content_gates(
+    path: Path, app_id: str, gates: ContentGates, *, sbom: bytes | None
+) -> list[str]:
     """Run the gates that depend on external services.
 
-    Raises `GateNotConfiguredError` when a gate is missing, so a
-    misconfigured deployment fails loudly instead of promoting unscanned
-    artifacts.
+    Returns the names of gates that were skipped, so the caller can record
+    which checks did *not* happen. An empty list means every gate ran.
+
+    Raises:
+        GateNotConfiguredError: a gate is neither configured nor skipped, so a
+            misconfigured deployment fails loudly rather than promoting
+            unscanned artifacts.
+        GateError: a gate ran and refused the artifact.
     """
-    if gates.malware is None:
+    skipped: list[str] = []
+
+    if "malware" in gates.skip:
+        skipped.append("malware")
+    elif gates.malware is None:
         raise GateNotConfiguredError("no malware scanner configured")
-    if not gates.malware.is_clean(path):
+    elif not gates.malware.is_clean(path):
         raise GateError("malware scan failed")
 
-    if gates.publisher is None:
+    if "publisher" in gates.skip:
+        skipped.append("publisher")
+    elif gates.publisher is None:
         raise GateNotConfiguredError("no publisher check configured")
-    if not gates.publisher.matches_expected_publisher(path, app_id):
+    elif not gates.publisher.matches_expected_publisher(path, app_id):
         raise GateError(f"publisher does not match the one already installed for {app_id!r}")
 
-    if gates.require_sbom and not sbom:
+    if "sbom" in gates.skip:
+        skipped.append("sbom")
+    elif gates.require_sbom and not sbom:
         raise GateError("no SBOM accompanies this artifact")
+
+    return skipped
 
 
 def describe_failures(errors: Sequence[GateError]) -> str:

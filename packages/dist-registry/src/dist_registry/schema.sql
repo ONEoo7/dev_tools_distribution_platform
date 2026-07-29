@@ -30,6 +30,15 @@ CREATE TABLE IF NOT EXISTS sources (
     critical                boolean     NOT NULL DEFAULT false,
 
     asset_name              text        NOT NULL,
+    -- Which channel/platform slot this source's artifact is published into.
+    -- Defaulted rather than required: one source is one artifact, and every
+    -- artifact so far is a Windows build on the stable channel. Stored instead
+    -- of assumed at signing time, because a signer that hardcodes a platform
+    -- files the wrong artifacts silently.
+    channel                 text        NOT NULL DEFAULT 'stable'
+                                        CHECK (channel IN ('stable', 'beta', 'canary')),
+    platform                text        NOT NULL DEFAULT 'windows',
+    arch                    text        NOT NULL DEFAULT 'amd64',
     tag_prefix              text        NOT NULL DEFAULT 'v',
     require_tag_ref_prefix  text        NOT NULL DEFAULT 'refs/tags/',
     max_asset_bytes         bigint      NOT NULL DEFAULT 2147483648,
@@ -66,13 +75,17 @@ CREATE TABLE IF NOT EXISTS sources (
 CREATE TABLE IF NOT EXISTS jobs (
     id           uuid        PRIMARY KEY,
     source_id    uuid        NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-    kind         text        NOT NULL CHECK (kind IN ('validate', 'poll')),
+    kind         text        NOT NULL CHECK (kind IN ('validate', 'poll', 'publish')),
     state        text        NOT NULL CHECK (state IN ('queued', 'running', 'done', 'failed')),
     requested_by text        NOT NULL DEFAULT '',
     requested_at timestamptz NOT NULL DEFAULT now(),
     started_at   timestamptz,
     finished_at  timestamptz,
     attempts     integer     NOT NULL DEFAULT 0,
+    -- What the job is to act on, decided when it was queued. A publish job
+    -- names the artifact by digest: the signer must sign what ingestion
+    -- approved, not whatever happens to be newest in quarantine when it runs.
+    payload      jsonb       NOT NULL DEFAULT '{}'::jsonb,
     result       jsonb,
     error        text
 );
@@ -118,3 +131,16 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions (expires_at);
+
+
+-- Version 1 databases predate these. `ADD COLUMN IF NOT EXISTS` and a dropped
+-- and recreated CHECK keep `migrate` a single idempotent script rather than a
+-- chain of numbered files.
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS channel  text NOT NULL DEFAULT 'stable';
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS platform text NOT NULL DEFAULT 'windows';
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS arch     text NOT NULL DEFAULT 'amd64';
+ALTER TABLE jobs    ADD COLUMN IF NOT EXISTS payload  jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_kind_check;
+ALTER TABLE jobs ADD  CONSTRAINT jobs_kind_check
+    CHECK (kind IN ('validate', 'poll', 'publish'));

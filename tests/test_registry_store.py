@@ -23,6 +23,11 @@ from dist_registry import db, store
 from dist_registry.models import Forge, JobKind, JobState, Source, SourceStatus
 from dist_registry.store import StoreError
 
+#: `claim_job` requires the caller to name what it will take, so that neither
+#: worker can execute the other's jobs. These tests exercise the queue itself
+#: rather than that separation, so they ask for everything.
+ALL_KINDS = tuple(JobKind)
+
 DSN = os.environ.get("DIST_TEST_DATABASE_URL")
 
 pytestmark = pytest.mark.skipif(not DSN, reason="set DIST_TEST_DATABASE_URL to run the store tests")
@@ -162,22 +167,22 @@ def test_claiming_takes_the_oldest_queued_job_and_marks_it_running(conn) -> None
     created = store.add_source(conn, a_source())
     store.enqueue(conn, created.id, JobKind.VALIDATE, requested_by="alice")
 
-    claimed = store.claim_job(conn)
+    claimed = store.claim_job(conn, ALL_KINDS)
     assert claimed is not None
     assert claimed.state is JobState.RUNNING
     assert claimed.attempts == 1
     # Nothing left to claim.
-    assert store.claim_job(conn) is None
+    assert store.claim_job(conn, ALL_KINDS) is None
 
 
 def test_a_job_a_dead_worker_left_running_is_requeued(conn) -> None:  # type: ignore[no-untyped-def]
     """Otherwise the partial unique index treats it as open forever."""
     created = store.add_source(conn, a_source())
     store.enqueue(conn, created.id, JobKind.VALIDATE, requested_by="alice")
-    store.claim_job(conn)
+    store.claim_job(conn, ALL_KINDS)
 
     assert store.reset_stale_jobs(conn, timedelta(seconds=0)) == 1
-    assert store.claim_job(conn) is not None
+    assert store.claim_job(conn, ALL_KINDS) is not None
 
 
 def test_only_active_sources_come_due_for_polling(conn) -> None:  # type: ignore[no-untyped-def]
@@ -199,7 +204,7 @@ def test_deleting_a_source_takes_its_jobs_but_not_its_audit_trail(conn) -> None:
     store.delete_source(conn, created.id)
 
     assert store.get_source(conn, created.id) is None
-    assert store.claim_job(conn) is None
+    assert store.claim_job(conn, ALL_KINDS) is None
     assert [e.action for e in store.recent_audit(conn)] == ["source.added"]
 
 

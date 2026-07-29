@@ -29,7 +29,13 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 
 from dist_admin import auth
 from dist_admin.config import Settings
-from dist_admin.forms import DEFAULT_API_BASE, FormError, source_from_form
+from dist_admin.forms import (
+    DEFAULT_API_BASE,
+    FormError,
+    source_edit_from_form,
+    source_from_form,
+)
+from dist_core.buildinfo import build_ref, build_time, source_digest
 from dist_registry import db, store
 from dist_registry.models import Forge, JobKind, SourceStatus
 from dist_registry.store import Conn, StoreError
@@ -145,7 +151,16 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.get("/healthz")
     def healthz() -> Response:
-        return Response("ok\n", media_type="text/plain")
+        # Carries the build identity so "which code is this container running"
+        # is answerable without shelling into it or reading back through the
+        # log. Unauthenticated on purpose, like the rest of this endpoint: it
+        # names a revision, which tells an attacker nothing they could not get
+        # from the repository, and the alternative is an operator who cannot
+        # check it during the incident where it matters.
+        return Response(
+            f"ok\nsource {source_digest()}\nbuilt {build_ref()} {build_time()}\n",
+            media_type="text/plain",
+        )
 
     @app.get("/static/app.css")
     def stylesheet() -> Response:
@@ -292,6 +307,63 @@ def _register_routes(app: FastAPI) -> None:
             jobs=store.recent_jobs(conn, source_id),
             status=SourceStatus,
         )
+
+    @app.get("/sources/{source_id}/edit")
+    def edit_source_form(
+        source_id: uuid.UUID,
+        conn: Conn = Depends(get_conn),
+        operator: Operator | None = Depends(current_operator),
+    ) -> Response:
+        if operator is None:
+            return _login_required()
+        source = store.get_source(conn, source_id)
+        if source is None:
+            return _render("not_found.html", operator=operator)
+        return _render("source_edit.html", operator=operator, source=source, error=None)
+
+    @app.post("/sources/{source_id}/edit")
+    async def edit_source(
+        source_id: uuid.UUID,
+        request: Request,
+        conn: Conn = Depends(get_conn),
+        operator: Operator | None = Depends(current_operator),
+    ) -> Response:
+        if operator is None:
+            return _login_required()
+        source = store.get_source(conn, source_id)
+        if source is None:
+            return _render("not_found.html", operator=operator)
+
+        data = dict(await request.form())
+        try:
+            _check_csrf(operator, str(data.get("csrf", "")))
+            changed = source_edit_from_form(data, source)
+        except FormError as exc:
+            return _render(
+                "source_edit.html", operator=operator, source=source, error=str(exc)
+            )
+
+        if not changed:
+            return _redirect(f"/sources/{source_id}")
+
+        try:
+            store.update_source(conn, source_id, changed)
+        except StoreError as exc:
+            return _render(
+                "source_edit.html", operator=operator, source=source, error=str(exc)
+            )
+
+        # The values, not just the field names: this is the record of what a
+        # release will be built from next time, and "somebody edited the source"
+        # is not something anyone can audit.
+        store.audit(
+            conn,
+            actor=operator.username,
+            action="source.edited",
+            source_id=source_id,
+            detail={k: str(v) for k, v in changed.items()},
+        )
+        return _redirect(f"/sources/{source_id}")
 
     @app.post("/sources/{source_id}/{action}")
     def source_action(
