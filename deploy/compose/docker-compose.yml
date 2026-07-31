@@ -203,14 +203,23 @@ services:
   # log — no signing keys and no TUF metadata — so losing it costs the
   # registry, not the trust root.
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: dist
       POSTGRES_DB: dist
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # 18 moved two things at once. The default `PGDATA` became version
+      # specific — `/var/lib/postgresql/18/docker` — and the declared VOLUME
+      # became its parent, `/var/lib/postgresql`.
+      #
+      # Mounting the old `/var/lib/postgresql/data` against an 18 image does
+      # not fail. The server writes to a path the named volume no longer
+      # covers, Docker backs that path with an *anonymous* volume, and the
+      # stack comes up healthy with its data somewhere nothing backs up and
+      # `docker compose down -v` discards. Mount the parent.
+      - postgres-data:/var/lib/postgresql
     networks: [control]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dist -d dist"]
@@ -236,7 +245,17 @@ volumes:
   # Written by the signing worker, read-only everywhere else.
   tuf-metadata:
   tuf-targets:
-  pgdata:
+  # Deliberately not the old `pgdata`. A 17 volume holds its cluster at the
+  # volume root, so remounting it at the 18 location would leave those files
+  # sitting beside a freshly `initdb`'d empty cluster — a stack that starts
+  # clean and reports healthy with none of the registry in it. A new name
+  # makes the migration explicit and leaves the 17 volume untouched for the
+  # dump; see the README.
+  #
+  # The name carries no version: 18 and later nest by major inside this
+  # volume, which is what lets a future 19 upgrade use `pg_upgrade --link`
+  # without moving any data between volumes.
+  postgres-data:
   # Content-addressed artifacts awaiting promotion. Never served.
   quarantine:
   # Sigstore's TUF trust root. Cache, not state: safe to delete, costs a

@@ -1147,7 +1147,7 @@ All mutable state lives in named volumes; containers are otherwise disposable.
 | `quarantine` | Pulled, not yet promoted candidates | ingest (rw), worker (ro) |
 | `keys-online` | `online.kdbx` | worker (ro) |
 | `keys-unseal` | Key file half of the composite master key | worker (ro), separate mount |
-| `pgdata` | Release records, audit log | postgres |
+| `postgres-data` | Release records, audit log | postgres (mounted at `/var/lib/postgresql`; 18+ nests the cluster by major version) |
 | `telemetry-db` | Telemetry, separate instance | telemetry postgres |
 | `crash-store` | Dumps and symbols | crash service |
 | `minio-data` | Blob store | minio |

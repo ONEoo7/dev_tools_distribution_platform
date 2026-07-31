@@ -31,6 +31,45 @@ docker compose run --rm admin python -m dist_admin.operators add alice
 
 Verify the edge with `curl http://127.0.0.1:8080/healthz`.
 
+### Upgrading Postgres, 17 to 18
+
+A fresh deployment needs nothing here. An existing one does, because this is a
+major version bump and the on-disk format is not compatible — and because the
+18 image moved where that format lives.
+
+Two changes landed together upstream. `PGDATA` became version specific
+(`/var/lib/postgresql/18/docker`), and the declared VOLUME became its parent
+(`/var/lib/postgresql`). The compose file now mounts the parent, and mounts a
+**new** volume, `postgres-data`.
+
+The old `pgdata` volume is deliberately left alone rather than reused. A 17
+volume holds its cluster at the volume root; mounted at the 18 location those
+files would sit beside a freshly initialised empty cluster, and the stack would
+start, pass its healthcheck and serve an empty registry. Nothing would report
+an error. The rename is what makes that impossible instead of merely unlikely.
+
+Dump from 17 and restore into 18:
+
+```bash
+docker compose stop admin worker signer
+docker run --rm -v dist-platform_pgdata:/var/lib/postgresql/data postgres:17-alpine \
+  pg_dumpall -U dist > dist-17.sql
+docker compose up -d postgres
+docker compose exec -T postgres psql -U dist -d dist < dist-17.sql
+docker compose up -d
+```
+
+Keep `dist-17.sql` and the `pgdata` volume until the registry, the job history
+and the operator accounts have all been checked. Only then:
+
+```bash
+docker volume rm dist-platform_pgdata
+```
+
+This database holds the source registry, the queue and the audit log — no
+signing keys and no TUF metadata — so a botched migration costs the registry
+and not the trust root. That is the one part of this worth being relaxed about.
+
 ### Knowing which code is running
 
 **Rebuild everything, not one service.** `admin` and `worker` are two targets of

@@ -29,14 +29,18 @@
 # `tmpfs` for the data directory: this database is meant to be lost.
 services:
   postgres-test:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: test
       POSTGRES_DB: dist_test
       POSTGRES_PASSWORD: test
-      PGDATA: /var/lib/postgresql/data/pgdata
     tmpfs:
-      - /var/lib/postgresql/data
+      # 18 defaults `PGDATA` to `/var/lib/postgresql/18/docker`, a
+      # subdirectory of the mount rather than the mount itself. That is what
+      # the explicit `PGDATA: .../data/pgdata` here used to arrange by hand,
+      # so it is gone rather than updated — setting it again would only pin
+      # the major version into a file that has no other reason to know it.
+      - /var/lib/postgresql
     ports:
       # Below the Windows dynamic range. 55432 sat inside an excluded port
       # range WinNAT reassigns across restarts, so it bound one day and refused
