@@ -22,6 +22,54 @@ cp .env.example .env      # set POSTGRES_PASSWORD and ADMIN_BOOTSTRAP_PASSWORD
 docker compose up -d --build
 ```
 
+On Windows, `deploy\windows\Deploy-DistPlatform.ps1` drives all of this
+interactively — preflight, `.env`, the ceremony, seeding `signing-keys`,
+health, and the buildinfo comparison — and generates the `secrets:` override
+the compose file needs before the `*_FILE` variables refer to anything. Every
+phase is idempotent, so a failed run can be re-run.
+
+```powershell
+pwsh -File deploy\windows\Deploy-DistPlatform.ps1
+```
+
+### Script parameters
+
+| Flag | Effect |
+|---|---|
+| `-Mode Production` (default) | Requires a composite master key for both keystores, and pre-checks the key-file placement rule before generating anything |
+| `-Mode Dev` | Passes `--dev` to the ceremony: one operator, the known constant password, all five root keys generated together. Never ship a Dev keyset |
+| `-SkipCeremony` | Use keystores and a repository that already exist. The normal choice when redeploying, or when the ceremony happened on another machine |
+| `-Force` | Permit the steps otherwise refused: rewriting `.env`, re-seeding a populated volume |
+| **`-AllowOfflineKeyOnHost`** | **Skip the offline-media move for `offline.kdbx`. See below** |
+
+### `-AllowOfflineKeyOnHost`, and why it is not the default
+
+After a ceremony the script prompts for a path on removable media, moves
+`offline.kdbx` there, and verifies it is gone from this host before continuing.
+`-AllowOfflineKeyOnHost` skips that.
+
+The flag exists because there are cases where the move is meaningless: a `-Mode
+Dev` keyset that is already a known-password throwaway, a disposable CI or
+staging host, or a machine that *is* the offline machine. Forcing a removable
+drive into those runs would only teach people to reach for the flag reflexively.
+
+In production it is the wrong answer, and specifically so. `offline.kdbx` holds
+`root` (3-of-5) and `targets` (2-of-3). PLAN.md 3.3 requires it never sit on a
+machine with network access, because those keys are the only thing standing
+between a host compromise and an attacker signing whatever they like, for every
+installed client, indefinitely. Everything else in the threat model assumes the
+service host can fall; this is the one file whose whole value is being
+somewhere else when it does.
+
+Worth knowing before you decide: this repository was already found in exactly
+that state — a production `offline.kdbx` sitting beside the online one in
+`keys/`, with a plaintext password file next to both. The default is a
+correction to something real, not a hypothetical.
+
+If you do use the flag, move the file by hand afterwards and back it up. One
+copy is not a backup: lose it and you can never publish a new `root`, which
+means never recovering from anything.
+
 The admin UI is then on <http://127.0.0.1:8081>. Sign in as `admin` with the
 bootstrap password, or create an operator without putting a password in a file:
 
